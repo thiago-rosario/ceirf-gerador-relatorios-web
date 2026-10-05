@@ -1,0 +1,30 @@
+@import url('https://fonts.googleapis.com/css2?family=Sen:wght@400..800&display=swap');
+@import 'tailwindcss';
+
+* {
+  font-family: 'Sen', sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background-color: #fff;
+}
+
+.login-emblem {
+  width: clamp(112px, 20vh, 210px);
+  height: clamp(112px, 20vh, 210px);
+}
+
+.login-title {
+  font-size: clamp(3rem, 8vh, 5.75rem);
+  text-shadow: 1px 2px 3px #0002;
+}
+
+.login-waves {
+  background:
+    radial-gradient(110% 90% at 2% -15%, transparent 72%, #eaf0fc80 72.3%, transparent 87%),
+    radial-gradient(110% 90% at 97% 110%, transparent 67%, #e3ebfa70 67.3%, transparent 87%),
+    radial-gradient(90% 75% at -3% 108%, #edf2fd80 50%, transparent 50.3%),
+    radial-gradient(80% 70% at 101% 125%, #e9effb80 70%, transparent 70.3%);
+}
