@@ -8,6 +8,9 @@
     "allowArbitraryExtensions": true,
     "allowJs": true,
     "skipLibCheck": true,
+    "paths": {
+      "@/*": ["./src/*"]
+    },
 
     /* Bundler mode */
     "moduleResolution": "bundler",
