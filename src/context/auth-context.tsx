@@ -1,14 +1,7 @@
 import { createContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { authenticateUser, changePassword as changeUserPassword, findCurrentUser, logoutUser } from '../service/auth-service'
-
-type User = {
-  id: string
-  name: string
-  email: string
-  role: string
-  must_change_password: boolean
-}
+import type { SessionUser as User } from '../types/users'
 
 type Session = {
   access_token: string
@@ -32,7 +25,7 @@ type AuthContextValue = {
   retryRestore: () => void
   forgetSession: (expectedToken?: string) => void
   refreshUser: () => Promise<User | null>
-  updateSessionUser: (user: Pick<User, 'id' | 'name' | 'email' | 'role'>, expectedToken: string) => boolean
+  updateSessionUser: (user: Pick<User, 'id' | 'name' | 'email' | 'role' | 'coordination_id' | 'coordination' | 'is_active'>, expectedToken: string) => boolean
 }
 
 const storageKey = 'ceirf.auth'
@@ -166,7 +159,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const updateSessionUser: AuthContextValue['updateSessionUser'] = (user, expectedToken) => {
     const current = sessionRef.current
     if (current?.user.id !== user.id || current.access_token !== expectedToken) return false
-    setCurrentSession({ ...current, user: { ...current.user, name: user.name, email: user.email, role: user.role } })
+    setCurrentSession({ ...current, user: { ...current.user, name: user.name, email: user.email, role: user.role,
+      coordination_id: user.coordination_id, coordination: user.coordination, is_active: user.is_active } })
     return true
   }
 
