@@ -24,10 +24,9 @@ export function useCoordinations(accessToken: string, enabled: boolean, refreshU
       .catch(async (error: Error) => {
         if (cancelled) return
         if ('status' in error && error.status === 403) {
-          // A 403 may also mean a password reset. Revalidate before using membership.
+          // Revalidate the session because a 403 can require a password change.
           try {
-            const currentUser = await refreshUserRef.current()
-            if (!currentUser || currentUser.must_change_password || !currentUser.is_active) return
+            await refreshUserRef.current()
           } catch (refreshError) {
             if (!cancelled) setResult({ accessToken, attempt, coordinations: [], error: refreshError instanceof Error
               ? refreshError : new Error('Não foi possível verificar seu acesso. Tente novamente.') })

@@ -7,6 +7,13 @@ import { createServer } from 'vite';
 
 const ownCoordination = { id: 2, code: 'COTEC', name: 'Coordenação Técnica' };
 const otherCoordination = { id: 3, code: 'COPROJ', name: 'Coordenação de Projetos' };
+const catalogue = [
+  ownCoordination,
+  otherCoordination,
+  { id: 4, code: 'CORMAN', name: 'Coordenação de Manutenção' },
+  { id: 42, code: 'NOVACOORD', name: 'Nova Coordenação' },
+  { id: 43, code: '__proto__', name: 'Coordenação com código não mapeado' },
+];
 const noop = () => {};
 const makeUser = (role, overrides = {}) => ({
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -24,6 +31,8 @@ let server;
 let CoordinationActions;
 let Reports;
 let ReportDestination;
+let CoordinationSelection;
+let AuthContext;
 
 before(async () => {
   server = await createServer({
@@ -37,8 +46,12 @@ before(async () => {
     server.ssrLoadModule('/src/views/CoordinationActions.tsx'),
     server.ssrLoadModule('/src/views/Reports.tsx'),
     server.ssrLoadModule('/src/views/ReportDestination.tsx'),
+    server.ssrLoadModule('/src/components/reports/CoordinationSelection.tsx'),
+    server.ssrLoadModule('/src/context/auth-context.tsx'),
   ]);
-  [CoordinationActions, Reports, ReportDestination] = modules.map((module) => module.default);
+  [CoordinationActions, Reports, ReportDestination] = modules.slice(0, 3).map((module) => module.default);
+  CoordinationSelection = modules[3].CoordinationSelection;
+  AuthContext = modules[4].AuthContext;
 });
 
 after(async () => {
@@ -73,11 +86,91 @@ function actionLinks(html) {
     .filter((href) => href === '/relatorios/pesquisar' || /\/(novo|revisao)$/.test(href));
 }
 
+function coordinationLinks(html) {
+  return [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)]
+    .map((match) => match[1])
+    .filter((href) => /^\/relatorios\/coordenacoes\/\d+$/.test(href));
+}
+
+function renderSelection(role, overrides = {}) {
+  return renderToStaticMarkup(createElement(AuthContext.Provider, {
+    value: { session: { access_token: 'token-da-sessao', user: makeUser(role) } },
+  }, createElement(CoordinationSelection, {
+    coordinations: catalogue,
+    isLoading: false,
+    error: null,
+    onRetry: noop,
+    onNavigate: noop,
+    ...overrides,
+  })));
+}
+
+for (const role of ['VIEWER', 'REVIEWER', 'OPERATOR', 'SUPERUSER']) {
+  test(`mostra todas as coordenações do catálogo para ${role}, inclusive fora do vínculo do usuário`, () => {
+    const html = renderSelection(role);
+
+    assert.deepEqual(coordinationLinks(html), catalogue.map((coordination) => `/relatorios/coordenacoes/${coordination.id}`));
+    const coordinationHeadings = [...html.matchAll(/<h2\b[^>]*>([^<]+)<\/h2>/g)]
+      .map((match) => match[1]).filter((heading) => heading !== 'Pesquisa global');
+    assert.deepEqual(coordinationHeadings, catalogue.map((coordination) => coordination.code));
+    for (const coordination of catalogue) {
+      assert.ok(html.includes(coordination.code));
+      assert.ok(html.includes(coordination.name));
+    }
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+    assert.match(html, /Pesquisar todos os relatórios/);
+    assert.doesNotMatch(html, /href="\/relatorios\/coordenacoes\/(COTEC|COPROJ|CORMAN|NOVACOORD|__proto__)"/);
+  });
+}
+
+test('usa ícone genérico para códigos desconhecidos, inclusive propriedades de protótipo', () => {
+  const html = renderSelection('VIEWER', { coordinations: catalogue.slice(3) });
+
+  assert.deepEqual(coordinationLinks(html), ['/relatorios/coordenacoes/42', '/relatorios/coordenacoes/43']);
+  assert.equal((html.match(/lucide-file-text/g) ?? []).length, 2);
+  assert.match(html, /NOVACOORD/);
+  assert.match(html, /__proto__/);
+});
+
+test('permite pesquisa global durante o carregamento do catálogo sem renderizar coordenações', () => {
+  const html = renderSelection('REVIEWER', { isLoading: true });
+
+  assert.match(html, /role="status"/);
+  assert.match(html, /Carregando coordenações/);
+  assert.deepEqual(coordinationLinks(html), []);
+  assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+  assert.match(html, /Pesquisar todos os relatórios/);
+});
+
+test('preserva catálogo vazio com pesquisa global disponível e sem cards de fallback', () => {
+  const html = renderSelection('OPERATOR', { coordinations: [] });
+
+  assert.match(html, /Nenhuma coordenação disponível no momento/);
+  assert.deepEqual(coordinationLinks(html), []);
+  assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+  assert.match(html, /Pesquisar todos os relatórios/);
+  assert.doesNotMatch(html, />COTEC<|>COPROJ</);
+});
+
+for (const status of [401, 403, 500]) {
+  test(`exibe erro HTTP ${status} e pesquisa global sem reduzir o catálogo à coordenação vinculada`, () => {
+    const error = Object.assign(new Error('Não foi possível acessar o catálogo completo.'), { status });
+    const html = renderSelection('OPERATOR', { error });
+
+    assert.match(html, /role="alert"/);
+    assert.match(html, /Tentar novamente/);
+    assert.deepEqual(coordinationLinks(html), []);
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+    assert.match(html, /Pesquisar todos os relatórios/);
+    assert.doesNotMatch(html, />COTEC<|>COPROJ</);
+  });
+}
+
 const actionCases = [
   ['VIEWER', ownCoordination, ['search']],
   ['VIEWER', otherCoordination, ['search']],
   ['REVIEWER', ownCoordination, ['create', 'search', 'review']],
-  ['REVIEWER', otherCoordination, ['search', 'review']],
+  ['REVIEWER', otherCoordination, ['search']],
   ['OPERATOR', ownCoordination, ['create', 'search']],
   ['OPERATOR', otherCoordination, ['search']],
   ['SUPERUSER', ownCoordination, ['create', 'search', 'review']],
@@ -115,13 +208,16 @@ test('identifica a coordenação selecionada pelo código e nome recebidos, com 
   ]);
 });
 
-test('não libera criação quando outra coordenação possui o mesmo nome e código', () => {
+test('não libera criação ou revisão quando outra coordenação possui o mesmo nome e código', () => {
   const sameDisplayDifferentId = { ...ownCoordination, id: otherCoordination.id };
-  const html = renderActions('OPERATOR', sameDisplayDifferentId);
 
-  assert.match(html, />COTEC<\/h1>/);
-  assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
-  assert.doesNotMatch(html, /Novo Relatório/);
+  for (const role of ['OPERATOR', 'REVIEWER']) {
+    const html = renderActions(role, sameDisplayDifferentId);
+
+    assert.match(html, />COTEC<\/h1>/);
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+    assert.doesNotMatch(html, /Novo Relatório|Relatórios em Revisão/);
+  }
 });
 
 test('não libera criação com IDs em texto, mesmo quando representam o mesmo número', () => {
@@ -129,12 +225,24 @@ test('não libera criação com IDs em texto, mesmo quando representam o mesmo n
   const membershipIdAsText = renderActions('OPERATOR', ownCoordination, {
     user: makeUser('OPERATOR', { coordination_id: '2' }),
   });
+  const reviewerSelectedIdAsText = renderActions('REVIEWER', { ...ownCoordination, id: '2' });
 
-  for (const html of [selectedIdAsText, membershipIdAsText]) {
+  for (const html of [selectedIdAsText, membershipIdAsText, reviewerSelectedIdAsText]) {
     assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
-    assert.doesNotMatch(html, /Novo Relatório/);
+    assert.doesNotMatch(html, /Novo Relatório|Relatórios em Revisão/);
   }
 });
+
+for (const coordinationId of [null, undefined, 0, '2', 2.5]) {
+  test(`Reviewer com vínculo ${String(coordinationId)} mantém somente pesquisa`, () => {
+    const html = renderActions('REVIEWER', ownCoordination, {
+      user: makeUser('REVIEWER', { coordination_id: coordinationId, coordination: null }),
+    });
+
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+    assert.doesNotMatch(html, /Novo Relatório|Relatórios em Revisão/);
+  });
+}
 
 for (const role of ['VIEWER', 'REVIEWER', 'OPERATOR', 'SUPERUSER']) {
   test(`não renderiza cards durante o carregamento das permissões de ${role}`, () => {
@@ -153,6 +261,7 @@ for (const [role, pathname] of [
   ['OPERATOR', '/relatorios/coordenacoes/3/novo'],
   ['OPERATOR', '/relatorios/coordenacoes/2/revisao'],
   ['REVIEWER', '/relatorios/coordenacoes/3/novo'],
+  ['REVIEWER', '/relatorios/coordenacoes/3/revisao'],
 ]) {
   test(`bloqueia acesso direto de ${role} a ${pathname} antes de carregar catálogo`, (t) => {
     const fetchMock = t.mock.method(globalThis, 'fetch', async () => {
@@ -200,7 +309,7 @@ for (const pathname of ['/relatorios/coordenacoes/COTEC', '/relatorios/coordenac
 for (const [role, pathname] of [
   ['VIEWER', '/relatorios/coordenacoes/3'],
   ['OPERATOR', '/relatorios/coordenacoes/2/novo'],
-  ['REVIEWER', '/relatorios/coordenacoes/3/revisao'],
+  ['REVIEWER', '/relatorios/coordenacoes/2/revisao'],
   ['SUPERUSER', '/relatorios/coordenacoes/3/novo'],
 ]) {
   test(`aguarda coordenação válida antes de liberar ${pathname} a ${role}`, () => {
@@ -208,9 +317,21 @@ for (const [role, pathname] of [
 
     assert.match(html, /role="status"/);
     assert.match(html, /Carregando coordenações/);
-    assert.deepEqual(actionLinks(html), []);
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
     assert.doesNotMatch(html, /Acesso restrito|<h3\b|coordination-heading/);
     assert.doesNotMatch(html, /A criação de relatórios ainda|A fila de revisão ainda/);
+  });
+}
+
+for (const role of ['VIEWER', 'REVIEWER', 'OPERATOR', 'SUPERUSER']) {
+  test(`abre seleção para ${role} com pesquisa global disponível enquanto o catálogo carrega`, () => {
+    const html = renderReports('/relatorios', makeUser(role));
+
+    assert.match(html, /Carregando coordenações/);
+    assert.deepEqual(coordinationLinks(html), []);
+    assert.deepEqual(actionLinks(html), ['/relatorios/pesquisar']);
+    assert.match(html, /Pesquisar todos os relatórios/);
+    assert.doesNotMatch(html, /Acesso restrito|>COTEC<|>COPROJ</);
   });
 }
 

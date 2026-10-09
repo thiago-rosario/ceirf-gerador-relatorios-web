@@ -1,5 +1,5 @@
 import type { SVGProps } from 'react'
-import { FileTextIcon } from 'lucide-react'
+import { ArrowRightIcon, FileTextIcon } from 'lucide-react'
 import type { Coordination } from '@/types/users'
 
 type ReportIconProps = SVGProps<SVGSVGElement>
@@ -66,16 +66,20 @@ export function CoordinationCard({ coordination, onNavigate }: CoordinationCardP
 
   return (
     <a href={href}
-      className="flex min-h-[150px] w-full max-w-[440px] items-center gap-4 rounded-[28px] border border-[#dedede] bg-white px-4 py-5 shadow-[0_1px_9px_rgba(0,0,0,0.11)] transition-[transform,box-shadow] hover:shadow-[0_6px_20px_rgba(7,53,116,0.14)] focus-visible:outline-3 focus-visible:outline-[#073574] focus-visible:outline-offset-4 motion-safe:hover:-translate-y-1 motion-reduce:transition-none sm:min-h-[164px] sm:gap-6 sm:px-6"
+      className="group flex min-h-[150px] w-full max-w-[440px] items-center gap-4 rounded-[28px] border border-[#dedede] bg-white px-4 py-5 shadow-[0_1px_9px_rgba(0,0,0,0.11)] transition-[transform,box-shadow,border-color,background-color] duration-200 hover:border-[#95afda] hover:bg-[#fafdff] hover:shadow-[0_6px_20px_rgba(7,53,116,0.14)] focus-visible:border-[#073574] focus-visible:outline-3 focus-visible:outline-[#073574] focus-visible:outline-offset-4 active:border-[#073574] active:bg-[#edf2ff] motion-safe:hover:-translate-y-1 motion-safe:active:translate-y-0 motion-safe:active:scale-[0.98] motion-reduce:transition-none sm:min-h-[164px] sm:gap-6 sm:px-6 md:gap-4 md:px-5 lg:gap-6 lg:px-6"
       onClick={(event) => {
         if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
         event.preventDefault()
         onNavigate(href)
       }}>
-      <Icon aria-hidden="true" className="size-[80px] shrink-0 sm:size-[120px]" style={{ color }} />
+      <Icon aria-hidden="true" className="size-[80px] shrink-0 sm:size-[120px] md:size-[96px] lg:size-[120px]" style={{ color }} />
       <div className="min-w-0">
-        <h2 className="break-words text-[30px] font-bold leading-tight text-[#073574] sm:text-[40px]">{coordination.code}</h2>
+        <h2 className="break-words text-[30px] font-bold leading-tight text-[#073574] sm:text-[40px] md:text-[32px] lg:text-[40px]">{coordination.code}</h2>
         <p className="mt-1 text-[16px] leading-snug text-slate-600 sm:text-[20px]">{coordination.name}</p>
+        <span className="mt-3 inline-flex items-center gap-2 text-sm font-semibold text-[#073574]">
+          Acessar ações
+          <ArrowRightIcon aria-hidden="true" className="size-4 transition-transform duration-200 motion-safe:group-hover:translate-x-1 motion-reduce:transition-none" />
+        </span>
       </div>
     </a>
   )

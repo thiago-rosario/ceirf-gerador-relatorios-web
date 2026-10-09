@@ -26,8 +26,8 @@ export const getReportPermissions = (user, coordinationId, isLoading = false) =>
       || ((user.role === 'OPERATOR' || isReviewer) && belongsToCoordination)
     ),
     search: true,
-    // This permits entry to the review screen; the backend defines the queue scope.
-    review: isSuperuser || isReviewer,
+    // The backend must also enforce this coordination scope on the review queue.
+    review: isSuperuser || (isReviewer && belongsToCoordination),
   }
 }
 

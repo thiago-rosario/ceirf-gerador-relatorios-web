@@ -21,12 +21,12 @@ test('Viewer visualiza somente pesquisa na própria coordenação e nas demais',
   }
 });
 
-test('Reviewer acumula criação na própria coordenação e acesso à revisão', () => {
+test('Reviewer acumula criação e revisão somente na própria coordenação', () => {
   assert.deepEqual(getReportPermissions(makeUser('REVIEWER'), 7), {
     create: true, search: true, review: true,
   });
   assert.deepEqual(getReportPermissions(makeUser('REVIEWER'), 8), {
-    create: false, search: true, review: true,
+    create: false, search: true, review: false,
   });
 });
 
@@ -71,16 +71,32 @@ test('pesquisa é global para todo usuário autenticado pronto, inclusive sem co
   }
 });
 
-test('revisão autoriza somente a entrada da tela para Reviewer e Superuser', () => {
-  for (const role of ['REVIEWER', 'SUPERUSER']) {
-    assert.equal(getReportPermissions(makeUser(role), null).review, true);
-    assert.equal(canAccessReportsRoute(makeUser(role), getReportsRoute('/relatorios/coordenacoes/8/revisao')), true);
+test('Reviewer revisa apenas sua coordenação e Superuser pode revisar qualquer coordenação', () => {
+  const reviewer = makeUser('REVIEWER');
+  assert.equal(getReportPermissions(reviewer, 7).review, true);
+  assert.equal(getReportPermissions(reviewer, 8).review, false);
+  assert.equal(getReportPermissions(reviewer, null).review, false);
+  assert.equal(canAccessReportsRoute(reviewer, getReportsRoute('/relatorios/coordenacoes/7/revisao')), true);
+  assert.equal(canAccessReportsRoute(reviewer, getReportsRoute('/relatorios/coordenacoes/8/revisao')), false);
+
+  const superuser = makeUser('SUPERUSER', { coordination_id: null });
+  for (const coordinationId of [7, 8]) {
+    assert.equal(getReportPermissions(superuser, coordinationId).review, true);
+    assert.equal(canAccessReportsRoute(superuser, getReportsRoute(`/relatorios/coordenacoes/${coordinationId}/revisao`)), true);
   }
 
   for (const role of ['OPERATOR', 'VIEWER', 'USER', 'SUPER_USER', 'reviewer', 'superuser', undefined]) {
     const permissions = getReportPermissions(makeUser(role), 7);
     assert.equal(permissions.review, false);
     if (role !== 'OPERATOR') assert.equal(permissions.create, false);
+  }
+});
+
+test('Reviewer sem vínculo numérico válido não acessa revisão por ID ou por objeto de coordenação', () => {
+  for (const coordinationId of [undefined, null, '', '7', 0, -1, 7.1, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    const user = makeUser('REVIEWER', { coordination_id: coordinationId, coordination: { id: 7, code: 'COTEC' } });
+    assert.deepEqual(getReportPermissions(user, 7), { create: false, search: true, review: false });
+    assert.equal(canAccessReportsRoute(user, getReportsRoute('/relatorios/coordenacoes/7/revisao')), false);
   }
 });
 
@@ -159,12 +175,14 @@ test('protege acesso direto à criação conforme role e coordenação seleciona
 });
 
 test('protege acesso direto à revisão e permite abrir ações de qualquer coordenação', () => {
+  const ownReviewRoute = getReportsRoute('/relatorios/coordenacoes/7/revisao');
   const reviewRoute = getReportsRoute('/relatorios/coordenacoes/8/revisao');
   const actionsRoute = getReportsRoute('/relatorios/coordenacoes/8');
 
   for (const role of ['OPERATOR', 'VIEWER', 'REVIEWER', 'SUPERUSER']) {
     assert.equal(canAccessReportsRoute(makeUser(role), actionsRoute), true);
-    assert.equal(canAccessReportsRoute(makeUser(role), reviewRoute), ['REVIEWER', 'SUPERUSER'].includes(role));
+    assert.equal(canAccessReportsRoute(makeUser(role), ownReviewRoute), ['REVIEWER', 'SUPERUSER'].includes(role));
+    assert.equal(canAccessReportsRoute(makeUser(role), reviewRoute), role === 'SUPERUSER');
   }
 });
 
