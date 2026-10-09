@@ -11,6 +11,10 @@ export type User = {
   updated_at?: string
 }
 
+export type SessionUser = Pick<User, 'id' | 'name' | 'email' | 'role' | 'coordination_id' | 'coordination' | 'is_active'> & {
+  must_change_password: boolean
+}
+
 export type UserFormValues = {
   name: string
   email: string
