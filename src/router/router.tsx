@@ -44,8 +44,9 @@ const Router = () => {
   const redirectAfterSave = useRef(false)
   const pathname = useSyncExternalStore(subscribeLocation, getPathname, () => '/dashboard')
   const isUsersPath = pathname === '/usuarios' || pathname.startsWith('/usuarios/')
+  const isReportsPath = pathname === '/relatorios' || pathname.startsWith('/relatorios/')
   const usersRoute = getUsersRoute(pathname)
-  const activeItem: NavigationId = isUsersPath ? 'users' : pathname === '/relatorios' ? 'reports' : 'overview'
+  const activeItem: NavigationId = isUsersPath ? 'users' : isReportsPath ? 'reports' : 'overview'
   const userManagementAllowed = canManageUsers(session?.user) && deniedToken !== session?.access_token
 
   const handleSessionInvalid = useCallback(() => {
@@ -164,7 +165,8 @@ const Router = () => {
               onBack={() => navigate('/usuarios')} onSaved={handleUserSaved} onCurrentUserUpdated={handleCurrentUserUpdated}
               onSessionInvalid={handleSessionInvalid} onPermissionDenied={handlePermissionDenied} />
           ) : activeItem === 'reports' ? (
-            <Reports onBack={() => navigate('/dashboard')} />
+            <Reports key={session.access_token} pathname={pathname} accessToken={session.access_token} user={session.user}
+              onBack={() => navigate('/dashboard')} onNavigate={navigate} onSessionInvalid={handleSessionInvalid} refreshUser={refreshUser} />
           ) : (
             <Home accessToken={session.access_token} loadData={dashboardDemoEnabled ? loadDashboardDemo : undefined} isDemo={dashboardDemoEnabled} onNavigateReports={() => navigate('/relatorios')} />
           )}

@@ -158,12 +158,45 @@ test('carrega perfis com o valor enum fornecido pelo backend', async (t) => {
   assertRequest(fetchMock, '/roles');
 });
 
-test('carrega coordenações ativas retornadas pelo backend', async (t) => {
-  const coordinations = [coordination];
+test('carrega o catálogo inteiro de coordenações com GET sem filtros por usuário ou coordenação', async (t) => {
+  const coordinations = [
+    coordination,
+    { id: 3, code: 'COPROJ', name: 'Coordenação de projetos' },
+    { id: 4, code: 'COROB', name: 'Coordenação de obras' },
+    { id: 5, code: 'CORMAN', name: 'Coordenação de manutenção' },
+    { id: 12, code: 'NOVACOORD', name: 'Nova coordenação cadastrada' },
+  ];
   const fetchMock = mockSuccess(t, { coordinations });
   assert.deepEqual(await listCoordinations(accessToken), coordinations);
   assertRequest(fetchMock, '/coordinations');
+  assert.equal(fetchMock.mock.callCount(), 1);
+  const [url, options] = fetchMock.mock.calls[0].arguments;
+  assert.equal(new URL(url, 'https://ceirf.example').search, '');
+  assert.equal(options.body, undefined);
 });
+
+test('preserva catálogo vazio sem inserir a coordenação vinculada ou registros simulados', async (t) => {
+  const fetchMock = mockSuccess(t, { coordinations: [] });
+  assert.deepEqual(await listCoordinations(accessToken), []);
+  assertRequest(fetchMock, '/coordinations');
+});
+
+for (const status of [401, 403, 500]) {
+  test(`propaga HTTP ${status} do catálogo sem retornar coordenações de fallback`, async (t) => {
+    const fetchMock = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({
+      status: 'error', message: 'O catálogo não está disponível.',
+    }), { status, headers: { 'Content-Type': 'application/json' } }));
+
+    await assert.rejects(listCoordinations(accessToken), (error) => {
+      assert.equal(error.status, status);
+      if (status === 500) assert.match(error.message, /servidor está indisponível/);
+      else assert.equal(error.message, 'O catálogo não está disponível.');
+      return true;
+    });
+    assertRequest(fetchMock, '/coordinations');
+    assert.equal(fetchMock.mock.callCount(), 1);
+  });
+}
 
 for (const [description, invoke, data] of [
   ['lista sem coleção', () => listUsers(accessToken), {}],
