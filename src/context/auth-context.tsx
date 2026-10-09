@@ -1,6 +1,6 @@
 import { createContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { authenticateUser, findCurrentUser, logoutUser } from '../service/auth-service'
+import { authenticateUser, changePassword as changeUserPassword, findCurrentUser, logoutUser } from '../service/auth-service'
 
 type User = {
   id: string
@@ -15,6 +15,12 @@ type Session = {
   user: User
 }
 
+type PasswordChange = {
+  current_password: string
+  password: string
+  password_confirmation: string
+}
+
 type AuthContextValue = {
   session: Session | null
   isRestoring: boolean
@@ -22,6 +28,7 @@ type AuthContextValue = {
   persistenceNotice: string
   login: (credentials: { email: string; password: string }, remember: boolean) => Promise<void>
   logout: () => Promise<void>
+  changePassword: (credentials: PasswordChange) => Promise<boolean>
   retryRestore: () => void
   forgetSession: (expectedToken?: string) => void
   refreshUser: () => Promise<User | null>
@@ -142,6 +149,20 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return user
   }
 
+  const changePassword: AuthContextValue['changePassword'] = async (credentials) => {
+    const current = sessionRef.current
+    if (!current) throw new Error('Sua sessão expirou. Entre novamente para alterar a senha.')
+
+    const user = await changeUserPassword(current.access_token, credentials)
+    if (user.id !== current.user.id) {
+      throw new Error('Não foi possível confirmar a alteração da senha. Tente novamente.')
+    }
+    if (sessionRef.current?.access_token !== current.access_token) return false
+
+    setCurrentSession({ ...current, user })
+    return true
+  }
+
   const updateSessionUser: AuthContextValue['updateSessionUser'] = (user, expectedToken) => {
     const current = sessionRef.current
     if (current?.user.id !== user.id || current.access_token !== expectedToken) return false
@@ -157,6 +178,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       persistenceNotice,
       login,
       logout,
+      changePassword,
       retryRestore: () => {
         setIsRestoring(true)
         setRestoreError('')

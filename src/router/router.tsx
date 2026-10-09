@@ -3,6 +3,7 @@ import Button from '../components/Button'
 import { Button as UiButton } from '../components/ui/button'
 import { useAuth } from '../hooks/use-auth'
 import Login from '../views/Login'
+import ChangePassword from '../views/ChangePassword'
 import Home from '../views/Home'
 import Reports from '../views/Reports'
 import Users from '../views/Users'
@@ -24,9 +25,10 @@ function getPathname() {
   return window.location.pathname.replace(/\/+$/, '') || '/'
 }
 
-function navigate(href: string) {
+function navigate(href: string, replace = false) {
   if (getPathname() === href) return
-  window.history.pushState(null, '', href)
+  if (replace) window.history.replaceState(null, '', href)
+  else window.history.pushState(null, '', href)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
@@ -34,6 +36,7 @@ const Router = () => {
   const { session, isRestoring, restoreError, persistenceNotice, logout, retryRestore, forgetSession, refreshUser, updateSessionUser } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState('')
+  const [loginNotice, setLoginNotice] = useState('')
   const [userNotice, setUserNotice] = useState('')
   const [deniedToken, setDeniedToken] = useState('')
   const [isCheckingAccess, setIsCheckingAccess] = useState(false)
@@ -49,6 +52,7 @@ const Router = () => {
     if (!session) return
     forgetSession(session.access_token)
     setUserNotice('')
+    setLoginNotice('Sua sessão expirou. Entre novamente para continuar.')
   }, [session, forgetSession])
 
   const handlePermissionDenied = useCallback(() => {
@@ -90,6 +94,11 @@ const Router = () => {
 
   useEffect(() => {
     if (!session || isRestoring || restoreError) return
+    if (session.user.must_change_password) {
+      navigate('/alterar-senha', true)
+      return
+    }
+    if (pathname === '/alterar-senha') navigate('/dashboard', true)
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     document.getElementById('main-content')?.focus({ preventScroll: true })
   }, [pathname, session, isRestoring, restoreError])
@@ -101,6 +110,8 @@ const Router = () => {
 
     try {
       await logout()
+      setLoginNotice('')
+      setUserNotice('')
     } catch (error) {
       setLogoutError(error instanceof Error ? error.message : 'Não foi possível sair. Tente novamente.')
     } finally {
@@ -108,7 +119,13 @@ const Router = () => {
     }
   }
 
-  if (!isRestoring && !restoreError && !session) return <Login />
+  if (!isRestoring && !restoreError && !session) return <Login notice={loginNotice} />
+
+  if (!isRestoring && !restoreError && session?.user.must_change_password) {
+    return <ChangePassword key={session.access_token} user={session.user} isLoggingOut={isLoggingOut}
+      logoutError={logoutError} persistenceNotice={persistenceNotice} onLogout={handleLogout} onSessionInvalid={handleSessionInvalid}
+      onSuccess={() => { setUserNotice('Senha alterada com sucesso.'); navigate('/dashboard', true) }} />
+  }
 
   if (!isRestoring && !restoreError && session) {
     return (
@@ -116,9 +133,6 @@ const Router = () => {
         activeItem={activeItem} userManagementAllowed={userManagementAllowed} onNavigate={navigate}>
         <div className={activeItem === 'reports' ? 'flex flex-1 flex-col' : 'flex flex-col gap-6'}>
           <div className={activeItem === 'reports' ? 'empty:hidden space-y-3 px-5 pt-5 sm:px-8' : 'empty:hidden space-y-3'}>
-            {session.user.must_change_password && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-              Sua senha é temporária. É necessário alterá-la antes de acessar as demais funcionalidades.
-            </p>}
             {persistenceNotice && <p role="status" className="text-sm text-gray-600">{persistenceNotice}</p>}
             {logoutError && <p role="alert" className="text-sm text-red-700">{logoutError}</p>}
             {userNotice && activeItem !== 'users' && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{userNotice}</p>}
@@ -126,9 +140,7 @@ const Router = () => {
           {isUsersPath ? !userManagementAllowed ? (
             <section aria-labelledby="users-access-heading" className="rounded-xl border border-border bg-card p-6 sm:p-8">
               <h1 id="users-access-heading" className="text-2xl font-semibold text-primary">Acesso restrito</h1>
-              <p role="alert" className="mt-3 text-sm text-muted-foreground">{session.user.must_change_password
-                ? 'Altere sua senha temporária para acessar o gerenciamento de usuários.'
-                : 'O gerenciamento de usuários está disponível apenas para superusuários com permissão ativa.'}</p>
+              <p role="alert" className="mt-3 text-sm text-muted-foreground">O gerenciamento de usuários está disponível apenas para superusuários com permissão ativa.</p>
               {accessError && <p role="alert" className="mt-3 text-sm text-red-700">{accessError}</p>}
               <div className="mt-5 flex flex-wrap gap-4">
                 <UiButton type="button" className="h-11" onClick={() => navigate('/dashboard')}>Voltar à visão geral</UiButton>
