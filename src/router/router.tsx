@@ -1,11 +1,17 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import Button from '../components/Button'
+import { Button as UiButton } from '../components/ui/button'
 import { useAuth } from '../hooks/use-auth'
 import Login from '../views/Login'
 import Home from '../views/Home'
+import Reports from '../views/Reports'
+import Users from '../views/Users'
+import CreateUser from '../views/CreateUser'
 import { AppLayout } from '../components/layout/AppLayout'
 import { loadDashboardDemo } from '../service/dashboard-demo'
-import type { NavigationItem } from '../components/layout/navigation'
+import type { NavigationId } from '../components/layout/navigation'
+import { canManageUsers, getUsersRoute } from '../service/users-access'
+import type { User } from '../types/users'
 
 const dashboardDemoEnabled = import.meta.env.VITE_DASHBOARD_DEMO !== 'false'
 
@@ -18,17 +24,69 @@ function getPathname() {
   return window.location.pathname.replace(/\/+$/, '') || '/'
 }
 
-function navigate(href: NavigationItem['href']) {
+function navigate(href: string) {
   if (getPathname() === href) return
   window.history.pushState(null, '', href)
   window.dispatchEvent(new PopStateEvent('popstate'))
 }
 
 const Router = () => {
-  const { session, isRestoring, restoreError, persistenceNotice, logout, retryRestore, forgetSession } = useAuth()
+  const { session, isRestoring, restoreError, persistenceNotice, logout, retryRestore, forgetSession, refreshUser, updateSessionUser } = useAuth()
   const [isLoggingOut, setIsLoggingOut] = useState(false)
   const [logoutError, setLogoutError] = useState('')
+  const [userNotice, setUserNotice] = useState('')
+  const [deniedToken, setDeniedToken] = useState('')
+  const [isCheckingAccess, setIsCheckingAccess] = useState(false)
+  const [accessError, setAccessError] = useState('')
+  const redirectAfterSave = useRef(false)
   const pathname = useSyncExternalStore(subscribeLocation, getPathname, () => '/dashboard')
+  const isUsersPath = pathname === '/usuarios' || pathname.startsWith('/usuarios/')
+  const usersRoute = getUsersRoute(pathname)
+  const activeItem: NavigationId = isUsersPath ? 'users' : pathname === '/relatorios' ? 'reports' : 'overview'
+  const userManagementAllowed = canManageUsers(session?.user) && deniedToken !== session?.access_token
+
+  const handleSessionInvalid = useCallback(() => {
+    if (!session) return
+    forgetSession(session.access_token)
+    setUserNotice('')
+  }, [session, forgetSession])
+
+  const handlePermissionDenied = useCallback(() => {
+    if (!session) return
+    setDeniedToken(session.access_token)
+    refreshUser().catch((error: Error & { status?: number }) => {
+      if (error.status === 401) handleSessionInvalid()
+    })
+  }, [session, refreshUser, handleSessionInvalid])
+
+  const clearUserNotice = useCallback(() => setUserNotice(''), [])
+
+  const handleCurrentUserUpdated = (user: User) => {
+    if (session && updateSessionUser(user, session.access_token)) {
+      redirectAfterSave.current = !canManageUsers({ ...session.user, ...user })
+    }
+  }
+
+  const handleUserSaved = (message: string) => {
+    setUserNotice(message)
+    navigate(redirectAfterSave.current ? '/dashboard' : '/usuarios')
+    redirectAfterSave.current = false
+  }
+
+  const verifyUsersAccess = async () => {
+    if (isCheckingAccess) return
+    setIsCheckingAccess(true)
+    setAccessError('')
+    try {
+      const user = await refreshUser()
+      if (canManageUsers(user)) setDeniedToken('')
+    } catch (error) {
+      if (error instanceof Error && 'status' in error && error.status === 401) handleSessionInvalid()
+      else setAccessError(error instanceof Error ? error.message : 'Não foi possível verificar o acesso. Tente novamente.')
+    } finally {
+      setIsCheckingAccess(false)
+    }
+  }
 
   useEffect(() => {
     if (!session || isRestoring || restoreError) return
@@ -55,14 +113,49 @@ const Router = () => {
   if (!isRestoring && !restoreError && session) {
     return (
       <AppLayout user={session.user} isLoggingOut={isLoggingOut} onLogout={handleLogout}
-        activeItem="overview" onNavigate={navigate}>
-        <div className="flex flex-col gap-6">
-          {session.user.must_change_password && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
-            Sua senha é temporária. É necessário alterá-la antes de acessar as demais funcionalidades.
-          </p>}
-          {persistenceNotice && <p role="status" className="text-sm text-gray-600">{persistenceNotice}</p>}
-          {logoutError && <p role="alert" className="text-sm text-red-700">{logoutError}</p>}
-          <Home accessToken={session.access_token} loadData={dashboardDemoEnabled ? loadDashboardDemo : undefined} isDemo={dashboardDemoEnabled} />
+        activeItem={activeItem} userManagementAllowed={userManagementAllowed} onNavigate={navigate}>
+        <div className={activeItem === 'reports' ? 'flex flex-1 flex-col' : 'flex flex-col gap-6'}>
+          <div className={activeItem === 'reports' ? 'empty:hidden space-y-3 px-5 pt-5 sm:px-8' : 'empty:hidden space-y-3'}>
+            {session.user.must_change_password && <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+              Sua senha é temporária. É necessário alterá-la antes de acessar as demais funcionalidades.
+            </p>}
+            {persistenceNotice && <p role="status" className="text-sm text-gray-600">{persistenceNotice}</p>}
+            {logoutError && <p role="alert" className="text-sm text-red-700">{logoutError}</p>}
+            {userNotice && activeItem !== 'users' && <p role="status" className="rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800">{userNotice}</p>}
+          </div>
+          {isUsersPath ? !userManagementAllowed ? (
+            <section aria-labelledby="users-access-heading" className="rounded-xl border border-border bg-card p-6 sm:p-8">
+              <h1 id="users-access-heading" className="text-2xl font-semibold text-primary">Acesso restrito</h1>
+              <p role="alert" className="mt-3 text-sm text-muted-foreground">{session.user.must_change_password
+                ? 'Altere sua senha temporária para acessar o gerenciamento de usuários.'
+                : 'O gerenciamento de usuários está disponível apenas para superusuários com permissão ativa.'}</p>
+              {accessError && <p role="alert" className="mt-3 text-sm text-red-700">{accessError}</p>}
+              <div className="mt-5 flex flex-wrap gap-4">
+                <UiButton type="button" className="h-11" onClick={() => navigate('/dashboard')}>Voltar à visão geral</UiButton>
+                <UiButton type="button" variant="outline" className="h-11" disabled={isCheckingAccess} onClick={verifyUsersAccess}>{isCheckingAccess ? 'Verificando…' : 'Verificar acesso novamente'}</UiButton>
+              </div>
+            </section>
+          ) : !usersRoute ? (
+            <section className="rounded-xl border border-border bg-card p-6">
+              <h1 className="text-2xl font-semibold text-primary">Página não encontrada</h1>
+              <p className="my-4 text-sm text-muted-foreground">Este endereço de gerenciamento de usuários é inválido.</p>
+              <UiButton type="button" className="h-11" onClick={() => navigate('/usuarios')}>Voltar aos usuários</UiButton>
+            </section>
+          ) : usersRoute.screen === 'list' ? (
+            <Users key={session.access_token} accessToken={session.access_token} currentUserId={session.user.id} notice={userNotice}
+              onBack={() => navigate('/dashboard')} onCreate={() => { clearUserNotice(); navigate('/usuarios/novo') }}
+              onEdit={(user) => { clearUserNotice(); navigate(`/usuarios/${user.id}/editar`) }}
+              onSessionInvalid={handleSessionInvalid} onPermissionDenied={handlePermissionDenied} onClearNotice={clearUserNotice} />
+          ) : (
+            <CreateUser key={`${session.access_token}:${pathname}`} accessToken={session.access_token}
+              userId={usersRoute.screen === 'edit' ? usersRoute.id : undefined} currentUserId={session.user.id}
+              onBack={() => navigate('/usuarios')} onSaved={handleUserSaved} onCurrentUserUpdated={handleCurrentUserUpdated}
+              onSessionInvalid={handleSessionInvalid} onPermissionDenied={handlePermissionDenied} />
+          ) : activeItem === 'reports' ? (
+            <Reports onBack={() => navigate('/dashboard')} />
+          ) : (
+            <Home accessToken={session.access_token} loadData={dashboardDemoEnabled ? loadDashboardDemo : undefined} isDemo={dashboardDemoEnabled} onNavigateReports={() => navigate('/relatorios')} />
+          )}
         </div>
       </AppLayout>
     )
@@ -76,7 +169,7 @@ const Router = () => {
           <>
             <p role="alert" className="mb-5 text-red-700">{restoreError}</p>
             <Button type="button" onClick={retryRestore}>Tentar novamente</Button>
-            <button type="button" onClick={forgetSession} className="mt-5 cursor-pointer text-blue-900 underline">Voltar ao login</button>
+            <button type="button" onClick={() => forgetSession()} className="mt-5 cursor-pointer text-blue-900 underline">Voltar ao login</button>
           </>
         ) : null}
       </section>

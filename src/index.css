@@ -136,20 +136,23 @@ body {
 }
 
 .app-layout {
-  --app-header-height: 4rem;
+  --app-header-height: 4.5rem;
 }
 
-.app-navbar[data-slot='sidebar-container'] {
-  top: var(--app-header-height);
-  height: calc(100dvh - var(--app-header-height));
+.app-header {
+  min-height: var(--app-header-height);
 }
 
-#main-content {
-  scroll-margin-top: calc(var(--app-header-height) + 1rem);
+@media (min-width: 640px) {
+  .app-layout {
+    --app-header-height: 5.5rem;
+  }
 }
 
-#visao-geral {
-  scroll-margin-top: calc(var(--app-header-height) + 1.5rem);
+@media (min-width: 1024px) {
+  .app-layout {
+    --app-header-height: 6rem;
+  }
 }
 
 .skip-link {
@@ -169,7 +172,7 @@ body {
 }
 
 @media (max-width: 767px) {
-  .app-layout footer {
+  .app-layout footer:not(.reports-footer) {
     padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
   }
 }

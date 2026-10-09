@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { InfoIcon, RefreshCwIcon } from 'lucide-react'
+import { FileTextIcon, InfoIcon, RefreshCwIcon } from 'lucide-react'
 import Dashboard from '@/components/dashboard/Dashboard'
 import { ReportPreviewDialog } from '@/components/dashboard/ReportPreviewDialog'
 import { Button } from '@/components/ui/button'
@@ -9,10 +9,11 @@ import { useDashboardData } from '@/hooks/use-dashboard-data'
  * @param {{
  *   accessToken: string,
  *   loadData?: import('../types/dashboard').DashboardLoader,
- *   isDemo?: boolean
+ *   isDemo?: boolean,
+ *   onNavigateReports: () => void
  * }} props
  */
-export default function Home({ accessToken, loadData, isDemo = false }) {
+export default function Home({ accessToken, loadData, isDemo = false, onNavigateReports }) {
   const { data, state, error, retry } = useDashboardData(accessToken, loadData)
   const [previewReport, setPreviewReport] = useState(
     /** @type {import('../types/dashboard').RecentReport | null} */ (null),
@@ -25,6 +26,14 @@ export default function Home({ accessToken, loadData, isDemo = false }) {
           <h1 className="text-2xl font-semibold tracking-tight text-primary lg:text-3xl">Visão Geral</h1>
           <p className="mt-2 text-sm leading-relaxed text-muted-foreground">Acompanhe os registros e atividades das coordenações da CEIRF.</p>
         </div>
+        <Button nativeButton={false} render={<a href="/relatorios" />} className="h-11 gap-2 px-5"
+          onClick={(event) => {
+            if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+            event.preventDefault()
+            onNavigateReports()
+          }}>
+          <FileTextIcon aria-hidden="true" />Relatórios
+        </Button>
       </div>
 
       {isDemo && (

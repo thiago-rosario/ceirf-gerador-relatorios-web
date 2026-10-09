@@ -1,13 +1,13 @@
-import { LayoutDashboardIcon } from 'lucide-react'
+import { FileTextIcon, LayoutDashboardIcon, UsersIcon } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
 export type NavigationRole = 'user' | 'viewer' | 'reviewer' | 'superuser'
-export type NavigationId = 'overview'
+export type NavigationId = 'overview' | 'reports' | 'users'
 export type NavigationItem = {
   id: NavigationId
   title: string
   icon: LucideIcon
-  href: '/dashboard'
+  href: '/dashboard' | '/relatorios' | '/usuarios'
 }
 
 const roles: Record<string, NavigationRole> = {
@@ -30,16 +30,17 @@ export function getRoleLabel(role: string): string {
   return normalized ? labels[normalized] : 'Perfil não identificado'
 }
 
-// The dashboard is presentation-only. Area-specific permissions belong to future workflows.
 export const navigationByRole: Record<NavigationRole, readonly NavigationId[]> = {
-  user: ['overview'],
-  viewer: ['overview'],
-  reviewer: ['overview'],
-  superuser: ['overview'],
+  user: ['overview', 'reports'],
+  viewer: ['overview', 'reports'],
+  reviewer: ['overview', 'reports'],
+  superuser: ['overview', 'reports', 'users'],
 }
 
 export const navigationItems: Record<NavigationId, NavigationItem> = {
   overview: { id: 'overview', title: 'Visão Geral', icon: LayoutDashboardIcon, href: '/dashboard' },
+  reports: { id: 'reports', title: 'Relatórios', icon: FileTextIcon, href: '/relatorios' },
+  users: { id: 'users', title: 'Usuários', icon: UsersIcon, href: '/usuarios' },
 }
 
 export function getNavigationItems(role: string) {

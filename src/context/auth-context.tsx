@@ -1,4 +1,4 @@
-import { createContext, useEffect, useState } from 'react'
+import { createContext, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { authenticateUser, findCurrentUser, logoutUser } from '../service/auth-service'
 
@@ -23,7 +23,9 @@ type AuthContextValue = {
   login: (credentials: { email: string; password: string }, remember: boolean) => Promise<void>
   logout: () => Promise<void>
   retryRestore: () => void
-  forgetSession: () => void
+  forgetSession: (expectedToken?: string) => void
+  refreshUser: () => Promise<User | null>
+  updateSessionUser: (user: Pick<User, 'id' | 'name' | 'email' | 'role'>, expectedToken: string) => boolean
 }
 
 const storageKey = 'ceirf.auth'
@@ -54,10 +56,16 @@ export const AuthContext = createContext<AuthContextValue | null>(null)
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null)
+  const sessionRef = useRef<Session | null>(null)
   const [isRestoring, setIsRestoring] = useState(() => Boolean(readAccessToken()))
   const [restoreError, setRestoreError] = useState('')
   const [persistenceNotice, setPersistenceNotice] = useState('')
   const [restoreAttempt, setRestoreAttempt] = useState(0)
+
+  const setCurrentSession = (next: Session | null) => {
+    sessionRef.current = next
+    setSession(next)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -68,7 +76,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     currentUser
       .then((user) => {
         if (!cancelled) {
-          setSession(accessToken && user ? { access_token: accessToken, user } : null)
+          setCurrentSession(accessToken && user ? { access_token: accessToken, user } : null)
         }
       })
       .catch((error) => {
@@ -76,7 +84,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         if (error.status === 401) {
           clearStoredSession()
-          setSession(null)
+          setCurrentSession(null)
         } else {
           setRestoreError(error.message)
         }
@@ -101,12 +109,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
 
     setRestoreError('')
-    setSession(authenticatedSession)
+    setCurrentSession(authenticatedSession)
   }
 
-  const forgetSession = () => {
+  const forgetSession = (expectedToken?: string) => {
+    if (expectedToken !== undefined && sessionRef.current?.access_token !== expectedToken) return
     clearStoredSession()
-    setSession(null)
+    setCurrentSession(null)
     setRestoreError('')
     setPersistenceNotice('')
   }
@@ -125,6 +134,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     forgetSession()
   }
 
+  const refreshUser = async () => {
+    const current = sessionRef.current
+    if (!current) return null
+    const user = await findCurrentUser(current.access_token)
+    if (sessionRef.current?.access_token === current.access_token) setCurrentSession({ ...current, user })
+    return user
+  }
+
+  const updateSessionUser: AuthContextValue['updateSessionUser'] = (user, expectedToken) => {
+    const current = sessionRef.current
+    if (current?.user.id !== user.id || current.access_token !== expectedToken) return false
+    setCurrentSession({ ...current, user: { ...current.user, name: user.name, email: user.email, role: user.role } })
+    return true
+  }
+
   return (
     <AuthContext.Provider value={{
       session,
@@ -139,6 +163,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setRestoreAttempt((attempt) => attempt + 1)
       },
       forgetSession,
+      refreshUser,
+      updateSessionUser,
     }}>
       {children}
     </AuthContext.Provider>
