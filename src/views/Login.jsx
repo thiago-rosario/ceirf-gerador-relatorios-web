@@ -6,7 +6,7 @@ import logoSsp from '../assets/logo-ssp.png'
 import assistenteCotec from '../assets/assistenteCotec.png'
 import { useLogin } from '../hooks/use-login'
 
-const Login = () => {
+const Login = ({ notice = '' }) => {
   const {
     email, setEmail, password, setPassword, remember, setRemember,
     isSubmitting, error, fieldErrors, handleSubmit,
@@ -32,6 +32,7 @@ const Login = () => {
         <div className="relative w-full max-w-lg">
           <form onSubmit={handleSubmit} aria-label="Login" aria-busy={isSubmitting}
             className="w-full max-w-lg rounded-[2.5rem] border border-slate-200 bg-white/95 px-6 py-6 shadow-[0_0_8px_rgba(30,58,138,0.08)] sm:rounded-[3.5rem] sm:px-8">
+            {notice && <p role="status" className="mb-5 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-900">{notice}</p>}
             <div className="space-y-5">
               <div>
                 <label className="mb-2 block text-base sm:text-lg" htmlFor="email">Usuário</label>

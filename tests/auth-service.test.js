@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { authenticateUser, findCurrentUser, logoutUser } from '../src/service/auth-service.js';
+import { authenticateUser, changePassword, findCurrentUser, logoutUser } from '../src/service/auth-service.js';
 
 const user = {
   id: '550e8400-e29b-41d4-a716-446655440000',
@@ -39,6 +39,8 @@ for (const [description, data] of [
   ['sem token', { user }],
   ['com token vazio', { access_token: '', user }],
   ['sem usuário', { access_token: 'token-da-sessao' }],
+  ['sem estado da senha', { access_token: 'token-da-sessao', user: { ...user, must_change_password: undefined } }],
+  ['com estado da senha inválido', { access_token: 'token-da-sessao', user: { ...user, must_change_password: 'false' } }],
 ]) {
   test(`não inicia uma sessão quando o backend responde sucesso ${description}`, async (t) => {
     mockSuccess(t, data);
@@ -63,6 +65,105 @@ test('rejeita a recuperação de uma sessão cuja resposta não identifica o usu
   mockSuccess(t, { user: null });
 
   await assert.rejects(findCurrentUser('token-da-sessao'), Error);
+});
+
+for (const state of [undefined, null, 'false']) {
+  test(`não restaura uma sessão quando o estado da senha é ${String(state)}`, async (t) => {
+    mockSuccess(t, { user: { ...user, must_change_password: state } });
+
+    await assert.rejects(findCurrentUser('token-da-sessao'), /validar a sessão/);
+  });
+}
+
+test('mantém a troca obrigatória recebida no login e na restauração da sessão', async (t) => {
+  const pendingUser = { ...user, must_change_password: true };
+  const session = { access_token: 'token-da-sessao', user: pendingUser };
+  mockSuccess(t, session);
+
+  assert.deepEqual(await authenticateUser({ email: user.email, password: 'senha-temporaria' }), session);
+  assert.deepEqual(await findCurrentUser('token-da-sessao'), pendingUser);
+});
+
+test('altera a senha com o Bearer atual, preserva as senhas e envia somente os campos permitidos', async (t) => {
+  const fetchMock = mockSuccess(t, { user });
+  const credentials = {
+    current_password: ' senha temporária ',
+    password: ' minha nova senha ',
+    password_confirmation: ' minha nova senha ',
+    must_change_password: false,
+    role: 'SUPERUSER',
+  };
+
+  assert.deepEqual(await changePassword('token-da-sessao', credentials), user);
+
+  const [url, options] = fetchMock.mock.calls[0].arguments;
+  assert.equal(url, '/api/auth/change-password');
+  assert.equal(options.method, 'POST');
+  assert.equal(new Headers(options.headers).get('Authorization'), 'Bearer token-da-sessao');
+  assert.deepEqual(JSON.parse(options.body), {
+    current_password: credentials.current_password,
+    password: credentials.password,
+    password_confirmation: credentials.password_confirmation,
+  });
+});
+
+for (const [description, data] of [
+  ['sem usuário', null],
+  ['sem identificador', { user: { ...user, id: undefined } }],
+  ['sem perfil da sessão', { user: { id: user.id, must_change_password: false } }],
+  ['sem estado da senha', { user: { ...user, must_change_password: undefined } }],
+  ['ainda com troca pendente', { user: { ...user, must_change_password: true } }],
+  ['com estado da senha inválido', { user: { ...user, must_change_password: 'false' } }],
+]) {
+  test(`não confirma a troca de senha quando o backend responde sucesso ${description}`, async (t) => {
+    mockSuccess(t, data);
+
+    await assert.rejects(changePassword('token-da-sessao', {
+      current_password: 'senha-temporaria',
+      password: 'nova-senha-segura',
+      password_confirmation: 'nova-senha-segura',
+    }), /confirmar a alteração da senha/);
+  });
+}
+
+test('propaga os erros dos campos da troca de senha para o formulário', async (t) => {
+  const errors = {
+    current_password: ['A senha atual está incorreta.'],
+    password: ['A nova senha deve ser diferente da senha atual.'],
+    password_confirmation: ['A confirmação da senha não corresponde.'],
+  };
+  t.mock.method(globalThis, 'fetch', async () =>
+    new Response(JSON.stringify({ status: 'error', errors }), {
+      status: 422,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+
+  await assert.rejects(changePassword('token-da-sessao', {
+    current_password: 'incorreta', password: 'senha', password_confirmation: 'outra',
+  }), (error) => {
+    assert.equal(error.status, 422);
+    assert.deepEqual(error.errors, errors);
+    return true;
+  });
+});
+
+test('propaga a expiração da sessão durante a troca de senha', async (t) => {
+  t.mock.method(globalThis, 'fetch', async () =>
+    new Response(JSON.stringify({ status: 'error', message: 'Não autenticado.' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  );
+
+  await assert.rejects(changePassword('token-expirado', {
+    current_password: 'senha-temporaria',
+    password: 'nova-senha-segura',
+    password_confirmation: 'nova-senha-segura',
+  }), (error) => {
+    assert.equal(error.status, 401);
+    return true;
+  });
 });
 
 test('encerra somente a sessão identificada pelo Bearer enviado ao logout', async (t) => {
