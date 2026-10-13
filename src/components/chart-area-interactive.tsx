@@ -14,7 +14,7 @@ const periodOptions = [
 ] as const
 
 const chartConfig = {
-  inspections: { label: "Vistorias", color: "var(--primary)" },
+  inspections: { label: "Relatórios", color: "var(--primary)" },
 } satisfies ChartConfig
 
 interface ChartAreaInteractiveProps {
@@ -35,11 +35,11 @@ export function ChartAreaInteractive({ periods, state }: ChartAreaInteractivePro
     <Card className="border border-border bg-card shadow-none ring-0" aria-busy={isLoading}>
       <CardHeader className="flex flex-col gap-4 px-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
         <div className="space-y-1">
-          <CardTitle className="text-primary"><h2>Vistorias realizadas</h2></CardTitle>
-          <CardDescription className="text-slate-600">Quantidade de vistorias realizadas por mês.</CardDescription>
+          <CardTitle className="text-primary"><h2>Relatórios registrados por mês</h2></CardTitle>
+          <CardDescription className="text-slate-600">Data de criação dos registros acessíveis à sua sessão, incluindo rascunhos e revisões.</CardDescription>
         </div>
         <div className="shrink-0 space-y-1.5">
-          <label htmlFor={`period-${id}`} className="sr-only">Período das vistorias</label>
+          <label htmlFor={`period-${id}`} className="sr-only">Período dos relatórios</label>
           <div className="relative">
             <select
               id={`period-${id}`}
@@ -58,13 +58,13 @@ export function ChartAreaInteractive({ periods, state }: ChartAreaInteractivePro
       </CardHeader>
       <CardContent className="px-3 pt-2 sm:px-6">
         {isLoading ? (
-          <div className="flex h-64 flex-col justify-between gap-5 p-3" role="status" aria-label="Carregando gráfico de vistorias">
+          <div className="flex h-64 flex-col justify-between gap-5 p-3" role="status" aria-label="Carregando gráfico de relatórios">
             <Skeleton className="h-full w-full" />
             <div className="flex justify-between">{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="h-3 w-7" />)}</div>
           </div>
         ) : chartData.length > 0 ? (
           <>
-            <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full" aria-label="Gráfico de vistorias realizadas por mês">
+            <ChartContainer config={chartConfig} className="aspect-auto h-64 w-full" aria-label="Gráfico de relatórios registrados por mês">
               <AreaChart accessibilityLayer data={chartData} margin={{ top: 16, left: 0, right: 16, bottom: 8 }}>
                 <defs>
                   <linearGradient id={`fill-inspections-${id}`} x1="0" y1="0" x2="0" y2="1">
@@ -80,15 +80,16 @@ export function ChartAreaInteractive({ periods, state }: ChartAreaInteractivePro
               </AreaChart>
             </ChartContainer>
             <table className="sr-only">
-              <caption>Vistorias realizadas — {periodOptions.find(({ value }) => value === selectedPeriod)?.label}</caption>
-              <thead><tr><th scope="col">Mês</th><th scope="col">Vistorias</th></tr></thead>
+              <caption>Relatórios registrados — {periodOptions.find(({ value }) => value === selectedPeriod)?.label}</caption>
+              <thead><tr><th scope="col">Mês</th><th scope="col">Relatórios</th></tr></thead>
               <tbody>{chartData.map((point, index) => <tr key={`${point.month}-${index}`}><th scope="row">{point.month}</th><td>{point.inspections}</td></tr>)}</tbody>
             </table>
+            {chartData.every((point) => point.inspections === 0) && <p role="status" className="mt-3 text-center text-sm text-slate-600">Nenhum relatório registrado neste período.</p>}
           </>
         ) : (
           <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-5 text-center">
             <span className="flex size-12 items-center justify-center rounded-lg bg-slate-50 text-primary"><ChartNoAxesCombinedIcon className="size-6" aria-hidden="true" /></span>
-            <p className="max-w-sm text-sm leading-6 text-slate-600">As vistorias aparecerão aqui quando os dados estiverem disponíveis.</p>
+            <p className="max-w-sm text-sm leading-6 text-slate-600">A série mensal aparecerá aqui quando os dados estiverem disponíveis.</p>
           </div>
         )}
       </CardContent>

@@ -21,13 +21,21 @@ export type RecentReport = {
   status: string | null
   viewHref?: string
   downloadHref?: string
+  hasPdf?: boolean
 }
 
-// Presentation model. A future API adapter should map its actual contract here.
+export type ReportActionProps = {
+  onViewReport?: (report: RecentReport) => void
+  onDownloadReport?: (report: RecentReport) => void
+  downloadBusyId?: string | null
+}
+
+// Presentation model adapted from the authenticated Laravel responses.
 export type DashboardData = {
   metrics: DashboardMetrics
   inspectionPeriods: Partial<Record<DashboardPeriod, InspectionPoint[]>>
   recentReports: RecentReport[]
+  notices?: string[]
 }
 
 export type DashboardState = 'unavailable' | 'loading' | 'ready' | 'error'
