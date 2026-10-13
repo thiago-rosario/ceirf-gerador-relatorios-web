@@ -42,6 +42,12 @@ test('consulta relatório real pelo UUID e preserva os metadados recebidos', asy
   assert.equal(fetchMock.mock.calls[0].arguments[0], `/api/reports/${id}`);
 });
 
+test('visualização aceita um rascunho parcial com tipologia ainda vazia e PDF ausente', async (t) => {
+  const draft = { ...report, status: 'DRAFT', cover: { municipality: null, typology: '' }, general_information: { inspection_date: null }, generated_document: null };
+  mockData(t, draft);
+  assert.deepEqual(await findReport('token', id), draft);
+});
+
 test('identificador UUID com letras maiúsculas aceita a representação normalizada do backend', async (t) => {
   mockData(t, report);
   assert.deepEqual(await findReport('token', id.toUpperCase()), report);
