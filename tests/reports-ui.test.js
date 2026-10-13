@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test, { after, before } from 'node:test';
 import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
@@ -28,6 +31,7 @@ const makeUser = (role, overrides = {}) => ({
 });
 
 let server;
+let cacheDirectory;
 let CoordinationActions;
 let Reports;
 let ReportDestination;
@@ -35,8 +39,10 @@ let CoordinationSelection;
 let AuthContext;
 
 before(async () => {
+  cacheDirectory = await mkdtemp(join(tmpdir(), 'ceirf-reports-ui-'));
   server = await createServer({
     root: fileURLToPath(new URL('../', import.meta.url)),
+    cacheDir: cacheDirectory,
     server: { middlewareMode: true, hmr: false, watch: null, ws: false },
     optimizeDeps: { noDiscovery: true, include: [] },
     appType: 'custom',
@@ -56,6 +62,7 @@ before(async () => {
 
 after(async () => {
   await server?.close();
+  if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true });
 });
 
 function renderActions(role, coordination = ownCoordination, overrides = {}) {
@@ -83,7 +90,8 @@ function renderReports(pathname, user) {
 function actionLinks(html) {
   return [...html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)]
     .map((match) => match[1])
-    .filter((href) => href === '/relatorios/pesquisar' || /\/(novo|revisao)$/.test(href));
+    .filter((href) => href.split('?')[0] === '/relatorios/pesquisar' || /\/(novo|revisao)$/.test(href))
+    .map((href) => href.startsWith('/relatorios/pesquisar?') ? '/relatorios/pesquisar' : href);
 }
 
 function coordinationLinks(html) {
@@ -201,6 +209,7 @@ test('identifica a coordenação selecionada pelo código e nome recebidos, com 
   assert.match(html, /Coordenação de Projetos/);
   assert.doesNotMatch(html, /Coordenação Técnica|>COTEC<\/h1>/);
   assert.match(html, /href="\/relatorios" aria-label="Voltar para as coordenações"/);
+  assert.match(html, /href="\/relatorios\/pesquisar\?coordination_id=3"/);
   assert.deepEqual(actionLinks(html), [
     '/relatorios/coordenacoes/3/novo',
     '/relatorios/pesquisar',

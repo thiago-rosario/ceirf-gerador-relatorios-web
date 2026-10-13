@@ -31,10 +31,12 @@ export const getReportPermissions = (user, coordinationId, isLoading = false) =>
   }
 }
 
-/** @returns {{ screen: 'list' | 'search' } | { screen: 'actions' | 'create' | 'review', coordinationId: number } | null} */
+/** @returns {{ screen: 'list' | 'search' } | { screen: 'view', reportId: string } | { screen: 'actions' | 'create' | 'review', coordinationId: number } | null} */
 export const getReportsRoute = (pathname) => {
   if (pathname === '/relatorios') return { screen: 'list' }
   if (pathname === '/relatorios/pesquisar') return { screen: 'search' }
+  const reportMatch = typeof pathname === 'string' && pathname.match(/^\/relatorios\/([^/]+)$/)
+  if (reportMatch && isReportId(reportMatch[1])) return { screen: 'view', reportId: reportMatch[1] }
 
   const match = typeof pathname === 'string'
     && pathname.match(/^\/relatorios\/coordenacoes\/([1-9]\d*)(?:\/(novo|revisao))?$/)
@@ -52,9 +54,9 @@ export const getReportsRoute = (pathname) => {
 export const canAccessReportsRoute = (user, route, isLoading = false) => {
   if (!route) return false
 
-  const permissions = getReportPermissions(user, route.coordinationId, isLoading)
+  const permissions = getReportPermissions(user, 'coordinationId' in route ? route.coordinationId : undefined, isLoading)
 
-  if (route.screen === 'list' || route.screen === 'search') return permissions.search
+  if (route.screen === 'list' || route.screen === 'search' || route.screen === 'view') return permissions.search
 
   if (!isCoordinationId(route.coordinationId)) return false
 
@@ -63,3 +65,4 @@ export const canAccessReportsRoute = (user, route, isLoading = false) => {
   if (route.screen === 'review') return permissions.review
   return false
 }
+import { isReportId } from './reports-navigation.js'

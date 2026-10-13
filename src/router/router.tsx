@@ -25,8 +25,12 @@ function getPathname() {
   return window.location.pathname.replace(/\/+$/, '') || '/'
 }
 
+function getLocation() {
+  return `${getPathname()}${window.location.search}`
+}
+
 function navigate(href: string, replace = false) {
-  if (getPathname() === href) return
+  if (getLocation() === href) return
   if (replace) window.history.replaceState(null, '', href)
   else window.history.pushState(null, '', href)
   window.dispatchEvent(new PopStateEvent('popstate'))
@@ -42,7 +46,8 @@ const Router = () => {
   const [isCheckingAccess, setIsCheckingAccess] = useState(false)
   const [accessError, setAccessError] = useState('')
   const redirectAfterSave = useRef(false)
-  const pathname = useSyncExternalStore(subscribeLocation, getPathname, () => '/dashboard')
+  const location = useSyncExternalStore(subscribeLocation, getLocation, () => '/dashboard')
+  const [pathname, search = ''] = location.split(/\?(.*)/s)
   const isUsersPath = pathname === '/usuarios' || pathname.startsWith('/usuarios/')
   const isReportsPath = pathname === '/relatorios' || pathname.startsWith('/relatorios/')
   const usersRoute = getUsersRoute(pathname)
@@ -165,7 +170,7 @@ const Router = () => {
               onBack={() => navigate('/usuarios')} onSaved={handleUserSaved} onCurrentUserUpdated={handleCurrentUserUpdated}
               onSessionInvalid={handleSessionInvalid} onPermissionDenied={handlePermissionDenied} />
           ) : activeItem === 'reports' ? (
-            <Reports key={session.access_token} pathname={pathname} accessToken={session.access_token} user={session.user}
+            <Reports key={session.access_token} pathname={pathname} search={search ? `?${search}` : ''} accessToken={session.access_token} user={session.user}
               onBack={() => navigate('/dashboard')} onNavigate={navigate} onSessionInvalid={handleSessionInvalid} refreshUser={refreshUser} />
           ) : (
             <Home accessToken={session.access_token} loadData={dashboardDemoEnabled ? loadDashboardDemo : undefined} isDemo={dashboardDemoEnabled} onNavigateReports={() => navigate('/relatorios')} />

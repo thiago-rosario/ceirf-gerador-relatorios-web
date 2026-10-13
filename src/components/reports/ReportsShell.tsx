@@ -7,9 +7,10 @@ type ReportsShellProps = {
   coordination?: Coordination | null
   onBack: () => void
   backHref?: string
+  title?: string
 }
 
-export function ReportsShell({ children, coordination, onBack, backHref = '/relatorios' }: ReportsShellProps) {
+export function ReportsShell({ children, coordination, onBack, backHref = '/relatorios', title }: ReportsShellProps) {
   return (
     <section
       aria-labelledby={coordination ? 'coordination-heading' : undefined}
@@ -18,8 +19,8 @@ export function ReportsShell({ children, coordination, onBack, backHref = '/rela
       <div className="flex shrink-0 items-center gap-4 pt-5 sm:gap-5 sm:pt-6">
         <a
           href={backHref}
-          aria-label={coordination ? backHref === '/relatorios' ? 'Voltar para as coordenações' : 'Voltar para as ações da coordenação' : undefined}
-          className={coordination
+          aria-label={coordination ? backHref === '/relatorios' ? 'Voltar para as coordenações' : 'Voltar para as ações da coordenação' : title ? 'Voltar à pesquisa' : undefined}
+          className={coordination || title
             ? 'flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[#073574] text-[#073574] transition-colors hover:bg-[#edf2ff] focus-visible:outline-[#073574] motion-reduce:transition-none sm:size-12'
             : 'flex min-h-11 items-center gap-2 rounded-lg px-3 text-[#073574] transition-colors hover:bg-[#edf2ff] focus-visible:outline-[#073574] motion-reduce:transition-none'}
           onClick={(event) => {
@@ -28,13 +29,14 @@ export function ReportsShell({ children, coordination, onBack, backHref = '/rela
             onBack()
           }}
         >
-          <ArrowLeftIcon aria-hidden="true" className={coordination ? 'size-8' : 'size-5'} strokeWidth={2} />
-          {!coordination && 'Voltar'}
+          <ArrowLeftIcon aria-hidden="true" className={coordination || title ? 'size-8' : 'size-5'} strokeWidth={2} />
+          {!coordination && !title && 'Voltar'}
         </a>
         {coordination && <div className="min-w-0">
           <h1 id="coordination-heading" className="break-words text-[32px] font-bold leading-tight text-[#073574] sm:text-[40px]">{coordination.code}</h1>
           <p className="mt-1 text-lg leading-snug text-slate-600 sm:text-xl">{coordination.name}</p>
         </div>}
+        {!coordination && title && <h1 className="text-2xl font-bold text-[#073574] sm:text-3xl">{title}</h1>}
       </div>
       <svg aria-hidden="true" className="pointer-events-none absolute inset-x-0 bottom-0 -z-10 h-[48%] w-full" viewBox="0 0 1554 320" fill="none" preserveAspectRatio="none">
         <path d="M0 0C213 205 448 110 704 173C1012 251 1240-9 1554 81V320H0V0Z" fill="#edf2ff" fillOpacity=".65" />
