@@ -1,4 +1,4 @@
-import { FilePenLineIcon, FilePlus2Icon, SearchIcon } from 'lucide-react'
+import { FilePenLineIcon, FilePlus2Icon } from 'lucide-react'
 import { ReportsShell } from '@/components/reports/ReportsShell'
 import { Button } from '@/components/ui/button'
 import type { Coordination } from '@/types/users'
@@ -7,10 +7,6 @@ const destinations = {
   create: {
     title: 'Novo Relatório', Icon: FilePlus2Icon, color: '#3564ad',
     description: 'A criação de relatórios ainda não está disponível nesta versão.',
-  },
-  search: {
-    title: 'Pesquisar Relatório', Icon: SearchIcon, color: '#008f49',
-    description: 'A tela de pesquisa ainda está em preparação. A consulta permitirá pesquisar, visualizar e baixar relatórios de todas as coordenações.',
   },
   review: {
     title: 'Relatórios em Revisão', Icon: FilePenLineIcon, color: '#76539e',

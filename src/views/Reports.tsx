@@ -6,26 +6,32 @@ import { Button } from '@/components/ui/button'
 import { useCoordinations } from '@/hooks/use-coordinations'
 import { canAccessReportsRoute, getReportPermissions, getReportsRoute } from '@/service/reports-access'
 import type { SessionUser } from '@/types/users'
+import { parseReportSearch } from '@/service/reports-navigation'
 import CoordinationActions from './CoordinationActions'
 import ReportDestination from './ReportDestination'
+import SearchReports from './SearchReports'
+import ViewReport from './ViewReport'
 
 type ReportsProps = {
   pathname: string
+  search?: string
   accessToken: string
   user: SessionUser
   onBack: () => void
-  onNavigate: (href: string) => void
+  onNavigate: (href: string, replace?: boolean) => void
   onSessionInvalid: () => void
   refreshUser: () => Promise<SessionUser | null>
 }
 
-export default function Reports({ pathname, accessToken, user, onBack, onNavigate, onSessionInvalid, refreshUser }: ReportsProps) {
+export default function Reports({ pathname, search = '', accessToken, user, onBack, onNavigate, onSessionInvalid, refreshUser }: ReportsProps) {
   const route = getReportsRoute(pathname)
   const allowed = canAccessReportsRoute(user, route)
-  const needsCoordination = allowed && route?.screen !== 'search'
+  const searchFilters = parseReportSearch(search)
+  const searchContextId = route?.screen === 'search' ? searchFilters.coordinationId : null
+  const needsCoordination = allowed && (route?.screen === 'search' ? Boolean(searchContextId) : route?.screen !== 'view')
   const { coordinations, error, isLoading, reload } = useCoordinations(accessToken, needsCoordination, refreshUser)
-  const selected = route && 'coordinationId' in route
-    ? coordinations.find((coordination) => coordination.id === route.coordinationId) : undefined
+  const coordinationId = route && 'coordinationId' in route ? route.coordinationId : searchContextId
+  const selected = coordinations.find((coordination) => coordination.id === coordinationId)
 
   useEffect(() => {
     if (error && 'status' in error && error.status === 401) onSessionInvalid()
@@ -38,7 +44,10 @@ export default function Reports({ pathname, accessToken, user, onBack, onNavigat
       <CoordinationSelection coordinations={coordinations} isLoading={isLoading} error={error} onRetry={reload} onNavigate={onNavigate} />
     </ReportsShell>
   )
-  if (allowed && route?.screen === 'search') return <ReportDestination screen="search" onBack={backToCoordinations} />
+  if (allowed && route?.screen === 'search') return <SearchReports key={`${searchFilters.municipalityId}:${searchFilters.typology}`} accessToken={accessToken} search={search} coordination={selected}
+    onNavigate={onNavigate} onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
+  if (allowed && route?.screen === 'view') return <ViewReport key={route.reportId} accessToken={accessToken} reportId={route.reportId} search={search}
+    onNavigate={onNavigate} onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
   if (allowed && selected && !isLoading && route?.screen === 'actions') return (
     <CoordinationActions coordination={selected} user={user} onBack={backToCoordinations} onNavigate={onNavigate} />
   )

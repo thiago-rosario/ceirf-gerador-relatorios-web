@@ -36,7 +36,7 @@ export default function CoordinationActions({ coordination, user, onBack, onNavi
           {permissions.search && <ReportActionCard
             title="Pesquisar Relatório"
             description="Pesquise, visualize e baixe relatórios de todas as coordenações"
-            href="/relatorios/pesquisar"
+            href={`/relatorios/pesquisar?coordination_id=${coordination.id}`}
             Icon={SearchIcon}
             color="#008f49"
             onNavigate={onNavigate}
