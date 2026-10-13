@@ -1,45 +1,53 @@
-# Dados do dashboard
+# Integração real do dashboard
 
-O dashboard usa dados demonstrativos por padrão enquanto a API de relatórios não existe. O aviso “Dados demonstrativos” permanece visível; estes exemplos não são registros reais. A autenticação continua usando a API existente.
+O dashboard consome a API Laravel autenticada. O loader demonstrativo, sua flag de ambiente e a prévia simulada foram removidos. Não há dados estáticos de substituição.
 
-- Exemplos: `src/service/dashboard-demo.ts`.
-- Modelo de apresentação: `src/types/dashboard.ts`.
-- Carregamento, cancelamento e nova tentativa: `src/hooks/use-dashboard-data.ts`.
-- Página inicial e composição: `src/views/Home.jsx`.
-- Dashboard reutilizável (indicadores, gráfico e tabela): `src/components/dashboard/Dashboard.tsx`.
-- Integração atual: `src/router/router.tsx`.
+## Endpoints confirmados
 
-Para desativar a demonstração, defina `VITE_DASHBOARD_DEMO=false` no ambiente do Vite e reinicie/recompile. Sem um loader real, a tela apresenta dados indisponíveis. Ao integrar a API, substitua `loadDashboardDemo` por um `DashboardLoader` e passe `isDemo={false}`. Nenhum endpoint de dashboard foi presumido ou criado.
+Todos os caminhos abaixo usam o prefixo configurado em `VITE_API_URL` (por padrão `/api`) e o token Bearer da sessão existente. O cliente HTTP já existente interpreta o envelope JSend.
 
-## Campos que a interface utiliza
-
-| Campo | Tipo | Apresentação |
+| Endpoint | Contrato consumido | Uso |
 | --- | --- | --- |
-| `metrics.municipalities` | número ou `null` | Municípios Visitados |
-| `metrics.forces` | número ou `null` | Forças Vistoriadas |
-| `metrics.reports` | número ou `null` | Relatórios Emitidos |
-| `metrics.trends` | objeto opcional | Texto de tendência por indicador; omitir quando não houver comparação |
-| `inspectionPeriods` | objeto de séries | Chaves `6-months`, `12-months`, `current-year`; omitir períodos não fornecidos |
-| `inspectionPeriods[period][]` | `{ month: string, inspections: number }` | Rótulo de mês e quantidade de vistorias |
-| `recentReports[].id` | string | Identificador estável do relatório |
-| `recentReports[].municipality` | string | Nome do município |
-| `recentReports[].coordination` | string ou `null` | Nome/sigla da coordenação |
-| `recentReports[].author` | string ou `null` | Nome do autor |
-| `recentReports[].date` | ISO 8601 ou `null` | Data em português; data sem horário mantém seu dia |
-| `recentReports[].status` | string ou `null` | Estado recebido; ausente exibe “Não informado” |
-| `recentReports[].viewHref` | string opcional | Destino real da página de visualização |
-| `recentReports[].downloadHref` | string opcional | URL válida para baixar o arquivo |
+| `GET /reports/dashboard` | `{ total_reports: number, reports: ReportResource[] }` | Total de registros acessíveis e dez registros mais recentes por `created_at` |
+| `GET /reports/count-by-month?month=YYYY-MM` | `{ month: string, counts: [{ month, count }] }`; `counts: []` significa zero | Série mensal; consulta doze meses únicos para os filtros de seis meses, doze meses e ano atual |
+| `GET /coordinations` | `{ coordinations: [{ id, code, name }] }` | Resolve `coordination_id` para a sigla real |
+| `GET /reports/{uuid}` | `ReportResource` | Visualização real na página existente de relatórios |
+| `GET /reports/{uuid}/pdf` | PDF autenticado ou erro JSON | Download com o hook e serviço existentes; disponível na tabela apenas quando `generated_document` existe |
 
-Uma série presente e vazia indica ausência de vistorias naquele período. Um período ausente fica desabilitado no filtro. Indicadores com valor zero exibem `0`; valores indisponíveis exibem `—`. Relatórios vazios usam o estado “Nenhum relatório recente”.
+`GET /reports/count` também existe, mas a tela aproveita `total_reports` do dashboard para evitar uma consulta redundante.
 
-O modelo acima é o formato normalizado da UI, não uma exigência sobre o formato do backend. Um adapter pode converter o contrato real para esse modelo usando o cliente JSend existente. O loader recebe `{ accessToken, signal }`, permitindo autenticação e cancelamento; rejeições mostram erro com nova tentativa.
+Os contratos foram conferidos em `src/Modules/Report/Presentation/Routes/api.php`, controllers, `ReportResource`, `ReportConsultationEloquentRepository` e `tests/Feature/ReportConsultationApiTest.php` do backend, exclusivamente por leitura.
 
-## Cuidados ao criar a API
+## Semântica dos dados
 
-A API existente ainda não oferece indicadores, séries, listagem, criação, visualização ou download de relatórios. O schema atual permite obter autor por `reports.created_by` e coordenação por `report_type_id → report_types.coordination_id`. A definição de cada indicador, período e escopo por usuário deve ocorrer no backend.
+O total e a contagem mensal contam registros de relatório acessíveis à sessão, incluindo rascunhos e revisões. A contagem mensal usa `created_at`, não a data da vistoria nem a data de geração. Os rótulos visuais são, portanto, **Relatórios registrados** e **Relatórios registrados por mês**. Não se presume que registros sejam vistorias distintas ou PDFs emitidos.
 
-`reports` ainda não tem um status global. O campo `report_reviews.status` não deve ser convertido automaticamente em status do relatório. Os estados `draft`, `in_review`, `approved` e `completed` deste arquivo são exemplos visuais; não definem transições nem regras de aprovação. Valores desconhecidos continuam visíveis como recebidos.
+Os limites do período usam o calendário de `America/Bahia`; o mês atual integra os filtros. A coleção recente é ordenada por `created_at`, limitada a dez elementos, e mostra essa data em **Criado em**.
 
-Na integração real, o olho usa `viewHref` e o download aparece somente com `downloadHref`. O destino/arquivo deve estar acessível com a autenticação escolhida pela aplicação; um link comum não envia automaticamente o token Bearer. Se o download exigir Bearer, implemente uma ação autenticada que obtenha o arquivo ou uma URL temporária autorizada. A demonstração abre apenas uma prévia local e não gera arquivos de relatório.
+Os estados reais `DRAFT` e `GENERATED` aparecem como **Em elaboração** e **Gerado**. `GENERATED` não é interpretado como aprovação institucional. Estados desconhecidos permanecem visíveis conforme recebidos.
 
-A configuração de navegação recebe os itens permitidos. As regras reais continuam no backend. `demo-navigation.ts` apresenta as opções futuras, mantendo Revisões/Administração desabilitadas; essa configuração não concede permissões. Os perfis existentes da API são `OPERATOR`, `VIEWER`, `REVIEWER` e `SUPERUSER`.
+## Dados ainda ausentes
+
+- **Municípios visitados e forças vistoriadas:** o backend não fornece agregações com definição de vistoria, período ou deduplicação de revisões. Os cards existentes mostram `—` e comunicam a dependência; não são calculados a partir de uma amostra recente.
+- **Nome do autor:** `ReportResource` entrega `created_by` como UUID, sem nome público. A coluna mostra **Indisponível na API**. O frontend não consulta `/users`, cujo acesso exige gerenciamento de usuários.
+- **Série de vistorias por data da visita:** a contagem mensal disponível considera criação de relatórios. Uma agregação específica permanece necessária para restaurar esse indicador com sua semântica original.
+
+As propostas de complementação estão em `APIS_PENDENTES_FRONTEND.md`; nenhuma rota proposta é chamada pelo dashboard.
+
+## Falhas, autenticação e ações
+
+- Loading mantém os skeletons existentes e oculta dados de uma sessão anterior.
+- Erros do dashboard oferecem nova tentativa; HTTP 404 explica que a instalação ainda não publica o recurso.
+- HTTP 401 em qualquer consulta ou download aciona o tratamento de sessão existente. HTTP 403 revalida o usuário pelo callback existente e apresenta o acesso negado.
+- Uma falha não relacionada à autenticação no catálogo não impede exibir o total e os registros reais; os nomes afetados ficam indisponíveis.
+- Uma falha mensal desabilita os períodos que dependem desse mês e oferece atualização. Um mês com falha nunca vira zero. `counts: []` confirmado pela API representa zero.
+- Não há links diretos para armazenamento privado. O download solicita o PDF com Bearer, valida o arquivo pelo serviço existente, abre um link temporário local e revoga o recurso.
+- A visualização navega para a página real; o dashboard não abre uma prévia demonstrativa.
+
+## Organização e verificação
+
+- Adapter e contratos: `src/service/dashboard-service.js`.
+- Estado, cancelamento e nova tentativa: `src/hooks/use-dashboard-data.ts`.
+- Composição, feedback e sessão: `src/views/Home.jsx`.
+- Cards, gráfico e tabela existentes foram reutilizados; as ações compartilham `ReportActionProps`.
+- `tests/dashboard-service.test.js` cobre contratos, autenticação, meses e virada de ano, zero real, respostas malformadas, falhas parciais e cancelamento.
