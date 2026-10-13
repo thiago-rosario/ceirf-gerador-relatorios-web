@@ -9,7 +9,7 @@ const isMunicipality = (value) => isPositiveInt(value?.id) && isText(value.name)
 const validateReport = (report, expectedId) => {
   if (!isReportId(report?.id) || (expectedId && report.id.toLowerCase() !== expectedId.toLowerCase())
     || !isText(report.status) || !isText(report.created_at)
-    || !(report.cover === null || (isText(report.cover?.typology)
+    || !(report.cover === null || (typeof report.cover?.typology === 'string'
       && (report.cover.municipality === null || isMunicipality(report.cover.municipality))))
     || !(report.general_information === null || report.general_information?.inspection_date === null || isText(report.general_information?.inspection_date))
     || !(report.generated_document === null || (isText(report.generated_document?.file_name) && isText(report.generated_document?.generated_at)))) {

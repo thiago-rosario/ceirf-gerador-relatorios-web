@@ -3,6 +3,8 @@ export type Municipality = { id: number; name: string; state_code: string }
 export type Report = {
   id: string
   status: string
+  coordination_id?: number | null
+  created_by?: string
   created_at: string
   revision_number?: number
   revision_label?: string | null

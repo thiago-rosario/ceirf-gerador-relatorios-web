@@ -7,16 +7,18 @@ type MunicipalityPickerProps = {
   value: number | null
   onChange: (id: number | null) => void
   disabled?: boolean
+  required?: boolean
+  invalid?: boolean
 }
 
-export function MunicipalityPicker({ municipalities, value, onChange, disabled }: MunicipalityPickerProps) {
+export function MunicipalityPicker({ municipalities, value, onChange, disabled, required, invalid }: MunicipalityPickerProps) {
   const selected = municipalities.find((municipality) => municipality.id === value) ?? null
   return (
     <Combobox.Root items={municipalities} value={selected} autoHighlight onValueChange={(municipality) => onChange(municipality?.id ?? null)}
       itemToStringLabel={(municipality) => municipality.name} itemToStringValue={(municipality) => String(municipality.id)}
       isItemEqualToValue={(item, selectedValue) => item.id === selectedValue.id} disabled={disabled}>
       <div className="relative flex h-12 w-full items-center rounded-xl border border-[#d8d8d8] bg-white focus-within:border-[#073574] focus-within:ring-2 focus-within:ring-[#073574]/15">
-        <Combobox.Input id="report-municipality" aria-label="Município" placeholder="Selecione ou pesquise o município"
+        <Combobox.Input id="report-municipality" aria-label="Município" aria-required={required || undefined} aria-invalid={invalid || undefined} placeholder="Selecione ou pesquise o município"
           className="h-full w-full min-w-0 rounded-xl px-4 pr-20 text-base outline-none disabled:opacity-60" />
         <div className="absolute right-1 flex items-center">
           {selected && <Combobox.Clear aria-label="Remover município" className="flex size-10 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100"><XIcon className="size-4" /></Combobox.Clear>}

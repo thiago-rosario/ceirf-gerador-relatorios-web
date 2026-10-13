@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DashboardData, DashboardLoader, DashboardState } from '@/types/dashboard'
+import { loadDashboard } from '@/service/dashboard-service'
 
 const unavailableData: DashboardData = {
   metrics: { municipalities: null, forces: null, reports: null },
@@ -7,34 +8,35 @@ const unavailableData: DashboardData = {
   recentReports: [],
 }
 
-export function useDashboardData(accessToken: string, load?: DashboardLoader) {
+type ApiError = Error & { status?: number }
+
+export function useDashboardData(accessToken: string, load: DashboardLoader = loadDashboard) {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<{
     data: DashboardData
     state: DashboardState
-    error: string
+    error: ApiError | null
     accessToken: string
     load?: DashboardLoader
     attempt: number
-  }>({ data: unavailableData, state: 'unavailable', error: '', accessToken, attempt: -1 })
+  }>({ data: unavailableData, state: 'unavailable', error: null, accessToken, attempt: -1 })
 
   useEffect(() => {
-    if (!load) return
-
     const controller = new AbortController()
     Promise.resolve()
       .then(() => load({ accessToken, signal: controller.signal }))
       .then((data) => {
         if (!controller.signal.aborted) {
-          setResult({ data, state: 'ready', error: '', accessToken, load, attempt })
+          setResult({ data, state: 'ready', error: null, accessToken, load, attempt })
         }
       })
-      .catch(() => {
+      .catch((failure: unknown) => {
         if (!controller.signal.aborted) {
+          const error = failure instanceof Error ? failure : new Error('Não foi possível carregar os dados do dashboard. Tente novamente.')
           setResult({
             data: unavailableData,
             state: 'error',
-            error: 'Não foi possível carregar os dados do dashboard. Tente novamente.',
+            error,
             accessToken,
             load,
             attempt,
@@ -46,9 +48,8 @@ export function useDashboardData(accessToken: string, load?: DashboardLoader) {
   }, [accessToken, load, attempt])
 
   // Never expose the previous user's data while a new session starts loading.
-  if (!load) return { data: unavailableData, state: 'unavailable' as const, error: '', retry: () => {} }
   if (result.accessToken !== accessToken || result.load !== load || result.attempt !== attempt) {
-    return { data: unavailableData, state: 'loading' as const, error: '', retry: () => setAttempt((value) => value + 1) }
+    return { data: unavailableData, state: 'loading' as const, error: null, retry: () => setAttempt((value) => value + 1) }
   }
 
   return { ...result, retry: () => setAttempt((value) => value + 1) }

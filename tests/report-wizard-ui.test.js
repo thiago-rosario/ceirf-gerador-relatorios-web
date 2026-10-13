@@ -1,0 +1,269 @@
+import assert from 'node:assert/strict';
+import test, { after, before } from 'node:test';
+import { fileURLToPath } from 'node:url';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { createServer } from 'vite';
+import { CHECKLIST, INFRASTRUCTURE, emptyReportDraft, getStepIssues } from '../src/service/report-form-model.js';
+
+const titles = ['Capa', 'Informações Gerais', 'Localização do Terreno', 'Infraestrutura Existente', 'Sugestão Pré-Implantação',
+  'Documentação Fotográfica', 'Anexos', 'Conclusão', 'Revisão Final'];
+const id = '550e8400-e29b-41d4-a716-446655440000';
+const noop = () => {};
+const render = (Component, props) => renderToStaticMarkup(createElement(Component, props));
+const municipality = { id: 7, name: 'Vitória da Conquista', state_code: 'BA' };
+const common = { accessToken: 'token', coordination: { id: 2, code: 'COTEC', name: 'Coordenação Técnica' }, search: '',
+  onBack: noop, onNavigate: noop, onSessionInvalid: noop, refreshUser: async () => null };
+let server;
+let cacheDirectory;
+let CreateReport;
+let CoverStep;
+let GeneralInformationStep;
+let QuestionForm;
+let ReviewStep;
+let UploadField;
+let LocationStep;
+let PreImplementationStep;
+let PhotographsStep;
+let AttachmentDocuments;
+let setTestState;
+
+before(async () => {
+  cacheDirectory = await mkdtemp(join(tmpdir(), 'ceirf-report-wizard-ui-'));
+  server = await createServer({
+    root: fileURLToPath(new URL('../', import.meta.url)), cacheDir: cacheDirectory,
+    server: { middlewareMode: true, hmr: false, watch: null, ws: false }, optimizeDeps: { noDiscovery: true, include: [] }, appType: 'custom', logLevel: 'error',
+    plugins: [{
+      name: 'controlled-wizard-state-for-ui-tests', enforce: 'pre',
+      // Control the view's input state in this test server only; production persistence remains unchanged.
+      transform(_code, path) {
+        if (!path.endsWith('/src/hooks/use-report-draft.ts')) return null;
+        return `import { emptyReportDraft } from '@/service/report-form-model';
+          let testState = {};
+          export const setTestState = (state) => { testState = state; };
+          export function useReportDraft() {
+            const draft = testState.draft ?? emptyReportDraft();
+            return { draft, step: 0, id: null, loading: false, loadError: null, saveError: null, saving: false,
+              savedAt: null, dirty: false, localFiles: draft.assets.filter((asset) => asset.file).length, generating: false,
+              updateDraft() {}, setStep() {}, retryLoad() {}, async save() { return 'draft-id'; }, async generate() { return null; }, ...testState };
+          }`;
+      },
+    }],
+  });
+  const modules = await Promise.all([
+    server.ssrLoadModule('/src/views/CreateReport.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/CoverStep.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/GeneralInformationStep.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/QuestionForm.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/ReviewStep.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/UploadField.tsx'),
+    server.ssrLoadModule('/src/components/reports/wizard/MediaSteps.tsx'),
+    server.ssrLoadModule('/src/hooks/use-report-draft.ts'),
+  ]);
+  CreateReport = modules[0].default;
+  CoverStep = modules[1].CoverStep;
+  GeneralInformationStep = modules[2].GeneralInformationStep;
+  QuestionForm = modules[3].QuestionForm;
+  ReviewStep = modules[4].ReviewStep;
+  UploadField = modules[5].UploadField;
+  ({ LocationStep, PreImplementationStep, PhotographsStep, AttachmentDocuments } = modules[6]);
+  setTestState = modules[7].setTestState;
+});
+
+after(async () => { await server?.close(); if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true }); });
+
+function renderWizard(step, extra = {}) {
+  setTestState({ step, ...extra });
+  return render(CreateReport, common);
+}
+
+for (const [index, title] of titles.entries()) {
+  test(`etapa ${index + 1} apresenta título, navegação completa e botões disponíveis com pendências`, () => {
+    const html = renderWizard(index);
+    assert.match(html, new RegExp(`<h2[^>]*id="report-step-heading"[^>]*>Etapa ${index + 1} de 9 – ${title}<`));
+    const nav = html.match(/<nav\b[^>]*aria-label="Etapas de criação do relatório"[\s\S]*?<\/nav>/)?.[0];
+    assert.ok(nav);
+    assert.equal((nav.match(/<button\b/g) ?? []).length, 9);
+    assert.equal((nav.match(/aria-current="step"/g) ?? []).length, 1);
+    assert.doesNotMatch(nav, /disabled=/);
+    for (const heading of titles) assert.ok(nav.includes(heading));
+    assert.match(html, /Você pode navegar com campos pendentes/);
+    assert.match(html, /Salvar e Sair/);
+    if (index > 0) assert.match(html, /Anterior/);
+    if (index < 8) {
+      const nextButton = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].find(([button]) => button.includes('Próximo'))?.[0];
+      assert.ok(nextButton);
+      assert.doesNotMatch(nextButton, /disabled=/);
+    } else {
+      const finalize = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].find(([button]) => button.includes('Finalizar relatório'))?.[0];
+      assert.ok(finalize);
+      assert.match(finalize, /disabled=""/);
+      assert.match(html, /não poderá ser finalizado.*campos obrigatórios, pendentes de preenchimento/);
+    }
+  });
+}
+
+test('capa contém os cinco campos oficiais, obrigatoriedade, limites e enums conhecidos', () => {
+  const draft = emptyReportDraft();
+  draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM 1B', sei_number: '12345' };
+  const html = render(CoverStep, { draft, onChange: noop, issues: [], municipalities: [municipality], isLoading: false, error: null, onRetry: noop });
+  for (const label of ['Município', 'Força', 'Tamanho', 'Tipologia', 'Nº SEI']) assert.ok(html.includes(label));
+  assert.equal((html.match(/aria-label="obrigatório"/g) ?? []).length, 5);
+  assert.match(html, /value="Vitória da Conquista"/);
+  assert.match(html, /<textarea[^>]*id="cover-typology"[^>]*aria-required="true"[^>]*>CIPM 1B<\/textarea>/);
+  assert.match(html, /<input[^>]*id="cover-sei"[^>]*aria-required="true"/);
+  assert.match(html, /aria-label="7 de 100 caracteres"/);
+  assert.match(html, /aria-label="5 de 80 caracteres"/);
+  for (const force of ['PM', 'PC', 'CBM', 'DPT', 'PC-PM', 'SSP']) assert.match(html, new RegExp(`<option[^>]*>${force}</option>`));
+  for (const size of ['1B', '1A', '1', '1B-1B', '1B-1A', '1B-1', '1A-1A', '1A-A', '1-1', '1A-1B', 'SEM PADRÃO']) assert.match(html, new RegExp(`<option[^>]*>${size}</option>`));
+});
+
+test('capa apresenta falha no catálogo e campos pendentes sem municípios inventados', () => {
+  const draft = emptyReportDraft();
+  const html = render(CoverStep, { draft, onChange: noop, issues: getStepIssues(draft)[0], municipalities: [], isLoading: false,
+    error: new Error('Catálogo indisponível.'), onRetry: noop });
+  assert.match(html, /Catálogo indisponível/);
+  assert.match(html, /Tentar novamente/);
+  assert.match(html, /Selecione a força|Selecione o tamanho|Informe a tipologia|Informe o número SEI/);
+  assert.doesNotMatch(html, /Vitória da Conquista|Salvador/);
+});
+
+test('informações gerais mostra somente data e colaboradores, limite de mil caracteres e erro para data futura', () => {
+  const draft = emptyReportDraft();
+  draft.general_information = { inspection_date: '2999-01-01', collaborators: 'Equipe COTEC' };
+  const html = render(GeneralInformationStep, { draft, onChange: noop, issues: [] });
+  assert.equal((html.match(/<input\b/g) ?? []).length, 1);
+  assert.equal((html.match(/<textarea\b/g) ?? []).length, 1);
+  assert.match(html, /type="date"[^>]*lang="pt-BR"[^>]*max="\d{4}-\d{2}-\d{2}"/);
+  assert.match(render(GeneralInformationStep, { draft: emptyReportDraft(), onChange: noop, issues: [] }), /Formato: DD\/MM\/AAAA/);
+  assert.match(html, /A data deve ser válida e não pode ser futura/);
+  assert.match(html, /aria-label="12 de 1000 caracteres"/);
+});
+
+for (const [title, items, expected] of [['infraestrutura', INFRASTRUCTURE, 10], ['checklist', CHECKLIST, 20]]) {
+  test(`${title} apresenta todos os ${expected} grupos obrigatórios com três respostas e progresso`, () => {
+    const values = Object.fromEntries(items.map(([key], index) => [key, index === 0 ? 'NÃO' : null]));
+    const html = render(QuestionForm, { items, values, prefix: title, showPending: true, onChange: noop });
+    const groups = [...html.matchAll(/<fieldset\b[\s\S]*?<\/fieldset>/g)].map(([group]) => group);
+    assert.equal(groups.length, expected);
+    assert.equal((html.match(/type="radio"/g) ?? []).length, expected * 3);
+    assert.equal((html.match(/aria-required="true"/g) ?? []).length, expected * 3);
+    assert.match(html, new RegExp(`1 de ${expected} respostas preenchidas`));
+    assert.match(html, new RegExp(`<progress[^>]*value="1"[^>]*max="${expected}"`));
+    assert.equal((html.match(/Resposta pendente/g) ?? []).length, expected - 1);
+    assert.match(html, /As pendências não impedem a navegação/);
+    for (const group of groups) {
+      assert.equal((group.match(/<input\b/g) ?? []).length, 3);
+      assert.deepEqual([...group.matchAll(/value="([^"]+)"/g)].map((match) => match[1]), ['SIM', 'NÃO', 'NÃO SE APLICA']);
+      assert.equal(new Set([...group.matchAll(/name="([^"]+)"/g)].map((match) => match[1])).size, 1);
+      assert.doesNotMatch(group, /disabled=/);
+    }
+  });
+}
+
+test('localização distingue mapa opcional da imagem estadual obrigatória apenas para finalizar', () => {
+  const html = render(LocationStep, { draft: emptyReportDraft(), onChange: noop });
+  assert.match(html, /Mapa de Localização/);
+  assert.match(html, /Localização do município em relação ao estado da Bahia/);
+  assert.equal((html.match(/Obrigatório na finalização/g) ?? []).length, 1);
+  assert.match(html, /Este arquivo será exigido para finalizar. Você pode continuar preenchendo as outras etapas/);
+  assert.match(html, /Legenda automática: Localização do município em relação ao estado da Bahia/);
+  assert.match(html, /PNG, JPG, JPEG ou PDF · até 5 MB por arquivo/);
+  assert.match(html, /salvamento dos campos de texto não envia estes arquivos ao servidor/);
+  assert.equal((html.match(/<input[^>]*type="file"/g) ?? []).length, 2);
+});
+
+test('pré-implantação apresenta legenda e observação institucional fixas sem controles para editar o texto', () => {
+  const html = render(PreImplementationStep, { draft: emptyReportDraft(), onChange: noop });
+  assert.match(html, /Legenda automática: Sugestão de pré-implantação COTEC/);
+  assert.match(html, /A pré-implantação foi realizada com imagens de drone e não substitui o projeto de implantação/);
+  assert.match(html, /Coordenação de Projetos após a realização dos estudos planialtimétricos e sondagens/);
+  assert.match(html, /Opcional/);
+  assert.doesNotMatch(html, /<textarea\b|contenteditable=|Obrigatório na finalização/);
+});
+
+test('upload selecionado apresenta preview, troca, remoção, figura e legenda sem alegar salvamento remoto', () => {
+  const file = new File(['png-image'], 'terreno.png', { type: 'image/png' });
+  const asset = { id, kind: 'photograph', name: file.name, mimeType: file.type, file, size: file.size,
+    checksum: 'a'.repeat(64), order: 1, caption: 'Vista do terreno', description: '' };
+  const html = render(UploadField, { title: 'Fotografia 1', asset, number: 2, editableCaption: true, onSelect: noop, onRemove: noop, onCaptionChange: noop });
+  assert.match(html, /<img[^>]*alt="Vista do terreno"/);
+  assert.match(html, /aria-label="Substituir terreno.png"/);
+  assert.match(html, /aria-label="Remover terreno.png do relatório"/);
+  assert.match(html, /Selecionado neste navegador/);
+  assert.match(html, /Figura 2/);
+  assert.match(html, /value="Vista do terreno"/);
+  assert.match(html, /accept=".png,.jpg,.jpeg,.pdf,image\/png,image\/jpeg,application\/pdf"/);
+  assert.doesNotMatch(html, /Arquivo registrado no servidor|upload concluído/);
+});
+
+test('fotografias mostram capacidade global e preservam ordem da numeração sem controles de reordenação', () => {
+  const draft = emptyReportDraft();
+  const asset = { id, kind: 'photograph', name: 'foto.pdf', mimeType: 'application/pdf', size: 120, checksum: 'b'.repeat(64), order: 5, caption: 'Vista geral', description: '' };
+  draft.assets = [{ ...asset, id: 'state-map', kind: 'state_map', order: 1 }, asset];
+  const html = render(PhotographsStep, { draft, onChange: noop });
+  assert.match(html, /2\/20 figuras/);
+  assert.match(html, /18 disponíveis/);
+  assert.match(html, /Figura 2/);
+  assert.match(html, /As fotografias mantêm a ordem em que foram adicionadas/);
+  assert.doesNotMatch(html, /draggable=|Reordenar|Mover para cima|Mover para baixo/);
+});
+
+test('anexos dividem documentos oficiais opcionais e exigem descrição de outros documentos', () => {
+  const draft = emptyReportDraft();
+  draft.assets = [{ id, kind: 'other', file: new File(['pdf'], 'anexo.pdf', { type: 'application/pdf' }), name: 'anexo.pdf',
+    mimeType: 'application/pdf', size: 3, checksum: 'c'.repeat(64), order: 1, caption: '', description: '' }];
+  const html = render(AttachmentDocuments, { draft, onChange: noop });
+  assert.match(html, /Documentos adicionais/);
+  assert.match(html, /Mapa de Localização do Município|Planta Topográfica/);
+  assert.match(html, /Outro documento 1|Adicionar outro documento/);
+  assert.match(html, /Informe a descrição para finalizar o relatório/);
+  assert.match(html, /<textarea[^>]*aria-invalid="true"/);
+  assert.match(html, /Abrir PDF selecionado/);
+});
+
+test('revisão final resume as oito seções e permite corrigir qualquer uma com pendências explícitas', () => {
+  const draft = emptyReportDraft();
+  draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM 1B', sei_number: '123' };
+  draft.general_information = { inspection_date: '2020-01-31', collaborators: 'Equipe técnica' };
+  draft.conclusion = 'Primeiro parágrafo.\nSegundo parágrafo.';
+  const html = render(ReviewStep, { draft, issues: getStepIssues(draft), municipalities: [municipality], onSelect: noop });
+  assert.equal((html.match(/<section\b/g) ?? []).length, 8);
+  for (const title of titles.slice(0, 8)) assert.match(html, new RegExp(`aria-label="Editar ${title}"`));
+  for (const value of ['Vitória da Conquista', 'CIPM 1B', '31/01/2020', 'Equipe técnica', 'Primeiro parágrafo.', 'Segundo parágrafo.']) assert.ok(html.includes(value));
+  assert.match(html, /pendências para finalizar/);
+  assert.match(html, /Adicione a localização do município em relação ao estado da Bahia/);
+  assert.match(html, /Esta revisão do formulário precede a revisão institucional/);
+  assert.match(html, /Seção preenchida/);
+  assert.match(html, /Sem pendências · envio opcional/);
+});
+
+test('arquivo local continua pendente na revisão e impede finalizar mesmo com campos completos', () => {
+  const draft = emptyReportDraft();
+  draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM', sei_number: '123' };
+  draft.general_information = { inspection_date: '2020-01-31', collaborators: 'Equipe' };
+  draft.infrastructure = Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, 'SIM']));
+  draft.checklist = Object.fromEntries(CHECKLIST.map(([key]) => [key, 'SIM']));
+  draft.conclusion = 'Conclusão técnica preenchida.';
+  const file = new File(['png'], 'municipio.png', { type: 'image/png' });
+  draft.assets = [{ id, kind: 'state_map', file, name: file.name, mimeType: file.type, size: file.size,
+    checksum: 'd'.repeat(64), order: 1, caption: '', description: '' }];
+  const html = renderWizard(8, { draft });
+  assert.match(html, /arquivo local, envio pendente/);
+  assert.match(html, /aguardando envio ao servidor \(API de upload indisponível\)/);
+  const finalize = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].find(([button]) => button.includes('Finalizar relatório'))?.[0];
+  assert.match(finalize, /disabled=""/);
+  assert.doesNotMatch(html, /Todas as seções estão preenchidas/);
+});
+
+test('falha de salvamento mantém navegação e informa que a confirmação do servidor não ocorreu', () => {
+  const html = renderWizard(1, { saveError: Object.assign(new Error('Servidor indisponível.'), { errors: { collaborators: ['Informe os colaboradores.'] } }) });
+  assert.match(html, /Servidor indisponível/);
+  assert.match(html, /Informe os colaboradores/);
+  assert.match(html, /Tentar salvar novamente/);
+  assert.match(html, /Salvamento não confirmado. Seus valores continuam nesta sessão/);
+  assert.doesNotMatch(html, /Campos salvos no servidor/);
+});

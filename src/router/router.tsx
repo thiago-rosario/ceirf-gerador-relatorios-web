@@ -9,12 +9,10 @@ import Reports from '../views/Reports'
 import Users from '../views/Users'
 import CreateUser from '../views/CreateUser'
 import { AppLayout } from '../components/layout/AppLayout'
-import { loadDashboardDemo } from '../service/dashboard-demo'
+import { clearReportDraftCache } from '../hooks/use-report-draft'
 import type { NavigationId } from '../components/layout/navigation'
 import { canManageUsers, getUsersRoute } from '../service/users-access'
 import type { User } from '../types/users'
-
-const dashboardDemoEnabled = import.meta.env.VITE_DASHBOARD_DEMO !== 'false'
 
 function subscribeLocation(onChange: () => void) {
   window.addEventListener('popstate', onChange)
@@ -57,6 +55,7 @@ const Router = () => {
   const handleSessionInvalid = useCallback(() => {
     if (!session) return
     forgetSession(session.access_token)
+    clearReportDraftCache()
     setUserNotice('')
     setLoginNotice('Sua sessão expirou. Entre novamente para continuar.')
   }, [session, forgetSession])
@@ -116,6 +115,7 @@ const Router = () => {
 
     try {
       await logout()
+      clearReportDraftCache()
       setLoginNotice('')
       setUserNotice('')
     } catch (error) {
@@ -173,7 +173,8 @@ const Router = () => {
             <Reports key={session.access_token} pathname={pathname} search={search ? `?${search}` : ''} accessToken={session.access_token} user={session.user}
               onBack={() => navigate('/dashboard')} onNavigate={navigate} onSessionInvalid={handleSessionInvalid} refreshUser={refreshUser} />
           ) : (
-            <Home accessToken={session.access_token} loadData={dashboardDemoEnabled ? loadDashboardDemo : undefined} isDemo={dashboardDemoEnabled} onNavigateReports={() => navigate('/relatorios')} />
+            <Home accessToken={session.access_token} onSessionInvalid={handleSessionInvalid} refreshUser={refreshUser}
+              onNavigateReports={() => navigate('/relatorios')} onNavigateReport={(id: string) => navigate(`/relatorios/${id}`)} />
           )}
         </div>
       </AppLayout>

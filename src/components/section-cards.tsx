@@ -7,7 +7,7 @@ import type { DashboardMetrics, DashboardState } from "@/types/dashboard"
 const indicators = [
   { key: "municipalities", label: "Municípios Visitados", description: "municípios vistoriados", icon: MapPinIcon },
   { key: "forces", label: "Forças Vistoriadas", description: "forças atendidas", icon: ShieldCheckIcon },
-  { key: "reports", label: "Relatórios Emitidos", description: "relatórios gerados", icon: FileTextIcon },
+  { key: "reports", label: "Relatórios registrados", description: "registros acessíveis à sua sessão", icon: FileTextIcon },
 ] as const
 
 interface SectionCardsProps {
@@ -36,7 +36,7 @@ export function SectionCards({ metrics, state }: SectionCardsProps) {
                 <Icon className="size-6" strokeWidth={1.6} aria-hidden="true" />
               </CardAction>
               <p className="col-span-full flex flex-wrap items-center gap-x-3 gap-y-1 text-xs leading-5 text-slate-600">
-                <span>{isLoading ? "Carregando dados…" : hasValue ? description : "Dados ainda não disponíveis"}</span>
+                <span>{isLoading ? "Carregando dados…" : hasValue ? description : state === 'ready' ? "Indicador depende de API específica" : "Dados ainda não disponíveis"}</span>
                 {trend && <span className="rounded-md bg-blue-50 px-2 font-medium text-primary">{trend}</span>}
               </p>
             </CardHeader>

@@ -5,15 +5,14 @@ import { ReportActions, ReportDate, ReportStatusBadge } from "@/components/dashb
 import { Skeleton } from "@/components/ui/skeleton"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { TooltipProvider } from "@/components/ui/tooltip"
-import type { DashboardState, RecentReport } from "@/types/dashboard"
+import type { DashboardState, RecentReport, ReportActionProps } from "@/types/dashboard"
 
-interface DataTableProps {
+interface DataTableProps extends ReportActionProps {
   reports: RecentReport[]
   state: DashboardState
-  onViewReport?: (report: RecentReport) => void
 }
 
-const columns = ["Município", "Coordenação", "Autor", "Data", "Status", "Ações"]
+const columns = ["Município", "Coordenação", "Autor", "Criado em", "Status", "Ações"]
 
 function ReportEmptyState({ state }: Pick<DataTableProps, "state">) {
   return (
@@ -27,7 +26,7 @@ function ReportEmptyState({ state }: Pick<DataTableProps, "state">) {
   )
 }
 
-function MobileReportCard({ report, onViewReport }: { report: RecentReport; onViewReport?: DataTableProps["onViewReport"] }) {
+function MobileReportCard({ report, ...actions }: { report: RecentReport } & ReportActionProps) {
   return (
     <article className="space-y-4 p-5">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -36,17 +35,17 @@ function MobileReportCard({ report, onViewReport }: { report: RecentReport; onVi
       </div>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         <dt className="text-slate-600">Coordenação</dt><dd className="break-words text-slate-800">{report.coordination || "Não informado"}</dd>
-        <dt className="text-slate-600">Autor</dt><dd className="break-words text-slate-800">{report.author || "Não informado"}</dd>
-        <dt className="text-slate-600">Data</dt><dd className="text-slate-800 tabular-nums"><ReportDate date={report.date} /></dd>
+        <dt className="text-slate-600">Autor</dt><dd className="break-words text-slate-800">{report.author || "Indisponível na API"}</dd>
+        <dt className="text-slate-600">Criado em</dt><dd className="text-slate-800 tabular-nums"><ReportDate date={report.date} /></dd>
       </dl>
       <div className="flex items-center justify-between border-t border-border pt-3">
-        <span className="text-xs text-slate-600">Ações do relatório</span><ReportActions report={report} onViewReport={onViewReport} />
+        <span className="text-xs text-slate-600">Ações do relatório</span><ReportActions report={report} {...actions} />
       </div>
     </article>
   )
 }
 
-export function DataTable({ reports, state, onViewReport }: DataTableProps) {
+export function DataTable({ reports, state, ...actions }: DataTableProps) {
   const id = useId()
   const titleId = `recent-reports-${id}`
   const isLoading = state === "loading"
@@ -77,10 +76,10 @@ export function DataTable({ reports, state, onViewReport }: DataTableProps) {
                   <TableRow key={report.id} className="hover:bg-slate-50/80">
                     <TableCell className="max-w-56 px-4 py-3 font-medium whitespace-normal text-slate-800">{report.municipality || "Não informado"}</TableCell>
                     <TableCell className="px-4 py-3 text-sm font-medium text-primary">{report.coordination || "Não informado"}</TableCell>
-                    <TableCell className="max-w-56 px-4 py-3 whitespace-normal text-slate-700">{report.author || "Não informado"}</TableCell>
+                    <TableCell className="max-w-56 px-4 py-3 whitespace-normal text-slate-700">{report.author || "Indisponível na API"}</TableCell>
                     <TableCell className="px-4 py-3 text-sm text-slate-600 tabular-nums"><ReportDate date={report.date} /></TableCell>
                     <TableCell className="px-4 py-3"><ReportStatusBadge status={report.status} /></TableCell>
-                    <TableCell className="px-3 py-2"><ReportActions report={report} onViewReport={onViewReport} /></TableCell>
+                    <TableCell className="px-3 py-2"><ReportActions report={report} {...actions} /></TableCell>
                   </TableRow>
                 )) : (
                   <TableRow className="hover:bg-transparent"><TableCell colSpan={columns.length} className="p-0 whitespace-normal"><ReportEmptyState state={state} /></TableCell></TableRow>
@@ -89,7 +88,7 @@ export function DataTable({ reports, state, onViewReport }: DataTableProps) {
             </Table>
           </div>
           <div className="divide-y divide-border md:hidden">
-            {isLoading ? Array.from({ length: 3 }, (_, row) => <div key={row} className="space-y-4 p-5"><Skeleton className="h-5 w-32" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-4 w-1/2" /></div>) : visibleReports.length > 0 ? visibleReports.map((report) => <MobileReportCard key={report.id} report={report} onViewReport={onViewReport} />) : <ReportEmptyState state={state} />}
+            {isLoading ? Array.from({ length: 3 }, (_, row) => <div key={row} className="space-y-4 p-5"><Skeleton className="h-5 w-32" /><Skeleton className="h-4 w-full" /><Skeleton className="h-4 w-4/5" /><Skeleton className="h-4 w-1/2" /></div>) : visibleReports.length > 0 ? visibleReports.map((report) => <MobileReportCard key={report.id} report={report} {...actions} />) : <ReportEmptyState state={state} />}
           </div>
         </div>
       </TooltipProvider>

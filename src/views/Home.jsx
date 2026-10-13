@@ -1,23 +1,26 @@
-import { useState } from 'react'
 import { FileTextIcon, InfoIcon, RefreshCwIcon } from 'lucide-react'
 import Dashboard from '@/components/dashboard/Dashboard'
-import { ReportPreviewDialog } from '@/components/dashboard/ReportPreviewDialog'
 import { Button } from '@/components/ui/button'
 import { useDashboardData } from '@/hooks/use-dashboard-data'
+import { useReportAccessError, useReportDownload } from '@/hooks/use-reports'
+
+const noSessionAction = () => {}
+const noRefresh = async () => null
 
 /**
  * @param {{
  *   accessToken: string,
  *   loadData?: import('../types/dashboard').DashboardLoader,
- *   isDemo?: boolean,
- *   onNavigateReports: () => void
+ *   onNavigateReports: () => void,
+ *   onNavigateReport?: (id: string) => void,
+ *   onSessionInvalid?: () => void,
+ *   refreshUser?: () => Promise<import('../types/users').SessionUser | null>
  * }} props
  */
-export default function Home({ accessToken, loadData, isDemo = false, onNavigateReports }) {
+export default function Home({ accessToken, loadData, onNavigateReports, onNavigateReport, onSessionInvalid = noSessionAction, refreshUser = noRefresh }) {
   const { data, state, error, retry } = useDashboardData(accessToken, loadData)
-  const [previewReport, setPreviewReport] = useState(
-    /** @type {import('../types/dashboard').RecentReport | null} */ (null),
-  )
+  const download = useReportDownload(accessToken)
+  useReportAccessError(error || download.error, onSessionInvalid, refreshUser)
 
   return (
     <div id="visao-geral" className="flex min-w-0 flex-col gap-6 lg:gap-7">
@@ -36,28 +39,29 @@ export default function Home({ accessToken, loadData, isDemo = false, onNavigate
         </Button>
       </div>
 
-      {isDemo && (
+      {state === 'ready' && (
         <div role="status" className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
           <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p><strong className="font-semibold text-primary">Dados demonstrativos.</strong> Indicadores, autores e status são exemplos para visualizar o dashboard.</p>
+          <p>Os registros respeitam o acesso da sua sessão. Os indicadores de municípios e forças vistoriadas e os nomes dos autores ainda dependem de informações não fornecidas pela API.</p>
         </div>
       )}
-      {!isDemo && state === 'unavailable' && (
-        <div role="status" className="flex items-start gap-3 rounded-lg border border-border bg-card px-4 py-3 text-sm leading-relaxed text-muted-foreground">
-          <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p>Os indicadores e relatórios serão exibidos quando os dados estiverem disponíveis.</p>
+      {data.notices?.length > 0 && (
+        <div role="alert" className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {data.notices.map((notice) => <p key={notice}>{notice}</p>)}
+          <Button variant="outline" className="h-11 gap-2 bg-card" onClick={retry}><RefreshCwIcon aria-hidden="true" />Atualizar dados</Button>
         </div>
       )}
       {state === 'error' && (
         <div role="alert" className="flex flex-col items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between">
-          <p>{error}</p>
+          <p>{error?.status === 401 ? 'Sua sessão expirou. Entre novamente para continuar.' : error?.status === 403 ? 'Acesso ao dashboard não autorizado. Verifique as permissões da sua sessão.' : error?.status === 404 ? 'O dashboard ainda não está disponível nesta instalação da API.' : error?.message}</p>
           <Button variant="outline" className="h-11 gap-2 bg-card" onClick={retry}>
             <RefreshCwIcon aria-hidden="true" />Tentar novamente
           </Button>
         </div>
       )}
-      <Dashboard data={data} state={state} onViewReport={isDemo ? setPreviewReport : undefined} />
-      <ReportPreviewDialog report={previewReport} onClose={() => setPreviewReport(null)} />
+      {download.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{download.error.message}</p>}
+      <Dashboard data={data} state={state} onViewReport={onNavigateReport ? (report) => onNavigateReport(report.id) : undefined}
+        onDownloadReport={(report) => download.download(report.id)} downloadBusyId={download.busyId} />
     </div>
   )
 }
