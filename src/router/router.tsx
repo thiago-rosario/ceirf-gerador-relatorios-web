@@ -10,6 +10,7 @@ import Users from '../views/Users'
 import CreateUser from '../views/CreateUser'
 import { AppLayout } from '../components/layout/AppLayout'
 import { loadDashboardDemo } from '../service/dashboard-demo'
+import { clearReportDraftCache } from '../hooks/use-report-draft'
 import type { NavigationId } from '../components/layout/navigation'
 import { canManageUsers, getUsersRoute } from '../service/users-access'
 import type { User } from '../types/users'
@@ -57,6 +58,7 @@ const Router = () => {
   const handleSessionInvalid = useCallback(() => {
     if (!session) return
     forgetSession(session.access_token)
+    clearReportDraftCache()
     setUserNotice('')
     setLoginNotice('Sua sessão expirou. Entre novamente para continuar.')
   }, [session, forgetSession])
@@ -116,6 +118,7 @@ const Router = () => {
 
     try {
       await logout()
+      clearReportDraftCache()
       setLoginNotice('')
       setUserNotice('')
     } catch (error) {

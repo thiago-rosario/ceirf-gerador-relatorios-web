@@ -8,9 +8,10 @@ type ReportsShellProps = {
   onBack: () => void
   backHref?: string
   title?: string
+  backLabel?: string
 }
 
-export function ReportsShell({ children, coordination, onBack, backHref = '/relatorios', title }: ReportsShellProps) {
+export function ReportsShell({ children, coordination, onBack, backHref = '/relatorios', title, backLabel }: ReportsShellProps) {
   return (
     <section
       aria-labelledby={coordination ? 'coordination-heading' : undefined}
@@ -19,7 +20,7 @@ export function ReportsShell({ children, coordination, onBack, backHref = '/rela
       <div className="flex shrink-0 items-center gap-4 pt-5 sm:gap-5 sm:pt-6">
         <a
           href={backHref}
-          aria-label={coordination ? backHref === '/relatorios' ? 'Voltar para as coordenações' : 'Voltar para as ações da coordenação' : title ? 'Voltar à pesquisa' : undefined}
+          aria-label={backLabel ?? (coordination ? backHref === '/relatorios' ? 'Voltar para as coordenações' : 'Voltar para as ações da coordenação' : title ? 'Voltar à pesquisa' : undefined)}
           className={coordination || title
             ? 'flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[#073574] text-[#073574] transition-colors hover:bg-[#edf2ff] focus-visible:outline-[#073574] motion-reduce:transition-none sm:size-12'
             : 'flex min-h-11 items-center gap-2 rounded-lg px-3 text-[#073574] transition-colors hover:bg-[#edf2ff] focus-visible:outline-[#073574] motion-reduce:transition-none'}

@@ -11,6 +11,7 @@ import CoordinationActions from './CoordinationActions'
 import ReportDestination from './ReportDestination'
 import SearchReports from './SearchReports'
 import ViewReport from './ViewReport'
+import CreateReport from './CreateReport'
 
 type ReportsProps = {
   pathname: string
@@ -46,13 +47,18 @@ export default function Reports({ pathname, search = '', accessToken, user, onBa
   )
   if (allowed && route?.screen === 'search') return <SearchReports key={`${searchFilters.municipalityId}:${searchFilters.typology}`} accessToken={accessToken} search={search} coordination={selected}
     onNavigate={onNavigate} onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
-  if (allowed && route?.screen === 'view') return <ViewReport key={route.reportId} accessToken={accessToken} reportId={route.reportId} search={search}
+  if (allowed && route?.screen === 'view') return <ViewReport key={route.reportId} accessToken={accessToken} reportId={route.reportId} search={search} user={user}
     onNavigate={onNavigate} onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
   if (allowed && selected && !isLoading && route?.screen === 'actions') return (
     <CoordinationActions coordination={selected} user={user} onBack={backToCoordinations} onNavigate={onNavigate} />
   )
-  if (allowed && selected && !isLoading && (route?.screen === 'create' || route?.screen === 'review')) return (
-    <ReportDestination screen={route.screen} coordination={selected} onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} />
+  if (allowed && selected && !isLoading && route?.screen === 'create') return (
+    <CreateReport key={`${selected.id}:${new URLSearchParams(search).get('draft_id') ?? 'new'}`} accessToken={accessToken} coordination={selected} search={search}
+      onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} onNavigate={onNavigate}
+      onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
+  )
+  if (allowed && selected && !isLoading && route?.screen === 'review') return (
+    <ReportDestination screen="review" coordination={selected} onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} />
   )
 
   return (

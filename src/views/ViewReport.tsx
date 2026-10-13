@@ -4,6 +4,7 @@ import { ReportPdfViewer } from '@/components/reports/ReportPdfViewer'
 import { Button } from '@/components/ui/button'
 import { useReport, useReportAccessError, useReportDownload, useReportPdf } from '@/hooks/use-reports'
 import { reportDateLabel, reportReturnHref } from '@/service/reports-navigation'
+import { getReportPermissions } from '@/service/reports-access'
 import type { SessionUser } from '@/types/users'
 
 type ViewReportProps = {
@@ -13,6 +14,7 @@ type ViewReportProps = {
   onNavigate: (href: string) => void
   onSessionInvalid: () => void
   refreshUser: () => Promise<SessionUser | null>
+  user?: SessionUser
 }
 
 export function ReportInformation({ report }: { report: import('@/types/reports').Report }) {
@@ -29,7 +31,7 @@ export function ReportInformation({ report }: { report: import('@/types/reports'
   </dl>
 }
 
-export default function ViewReport({ accessToken, reportId, search, onNavigate, onSessionInvalid, refreshUser }: ViewReportProps) {
+export default function ViewReport({ accessToken, reportId, search, onNavigate, onSessionInvalid, refreshUser, user }: ViewReportProps) {
   const backHref = reportReturnHref(search)
   const report = useReport(accessToken, reportId)
   const pdf = useReportPdf(accessToken, reportId, Boolean(report.data?.generated_document))
@@ -40,6 +42,9 @@ export default function ViewReport({ accessToken, reportId, search, onNavigate, 
 
   const metadataError = report.error?.status === 404 ? 'O relatório solicitado não foi encontrado.'
     : report.error?.status === 403 ? 'Você não tem permissão para consultar este relatório.' : report.error?.message
+  const canResume = report.data?.status === 'DRAFT' && getReportPermissions(user, report.data.coordination_id).create
+    && (user?.role !== 'OPERATOR' || report.data.created_by === user.id)
+  const resumeHref = `/relatorios/coordenacoes/${report.data?.coordination_id}/novo?draft_id=${reportId}`
 
   return <ReportsShell title="Visualizar Relatório" backHref={backHref} onBack={() => onNavigate(backHref)}>
     <div className="mx-auto w-full max-w-[1600px] space-y-4 pb-8 pt-6 sm:pt-7">
@@ -47,6 +52,7 @@ export default function ViewReport({ accessToken, reportId, search, onNavigate, 
         : report.error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800"><p>{metadataError}</p><Button variant="outline" className="mt-4 h-11 bg-white" onClick={report.reload}>Tentar novamente</Button></div>
           : report.data && <>
             <ReportInformation report={report.data} />
+            {canResume && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm text-[#073574]">Este relatório é um rascunho. Continue preenchendo as nove etapas antes de gerar o PDF.</p><Button className="h-11" onClick={() => onNavigate(resumeHref)}>Continuar preenchimento</Button></div>}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm leading-6 text-slate-500">Use os controles do visualizador para navegar pelas páginas, ajustar o zoom e imprimir.</p>
               <div className="flex flex-wrap gap-3">

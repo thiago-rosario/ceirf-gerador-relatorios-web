@@ -1,13 +1,9 @@
-import { FilePenLineIcon, FilePlus2Icon } from 'lucide-react'
+import { FilePenLineIcon } from 'lucide-react'
 import { ReportsShell } from '@/components/reports/ReportsShell'
 import { Button } from '@/components/ui/button'
 import type { Coordination } from '@/types/users'
 
 const destinations = {
-  create: {
-    title: 'Novo Relatório', Icon: FilePlus2Icon, color: '#3564ad',
-    description: 'A criação de relatórios ainda não está disponível nesta versão.',
-  },
   review: {
     title: 'Relatórios em Revisão', Icon: FilePenLineIcon, color: '#76539e',
     description: 'A fila de revisão ainda não está disponível. Quando habilitada, exibirá os relatórios que você tem permissão para revisar e acompanhar.',
