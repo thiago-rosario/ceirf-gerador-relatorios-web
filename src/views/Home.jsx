@@ -3,6 +3,7 @@ import Dashboard from '@/components/dashboard/Dashboard'
 import { Button } from '@/components/ui/button'
 import { useDashboardData } from '@/hooks/use-dashboard-data'
 import { useReportAccessError, useReportDownload } from '@/hooks/use-reports'
+import { downloadPresentationExample } from '@/service/presentation-data'
 
 const noSessionAction = () => {}
 const noRefresh = async () => null
@@ -42,7 +43,7 @@ export default function Home({ accessToken, loadData, onNavigateReports, onNavig
       {state === 'ready' && (
         <div role="status" className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
           <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p>Os registros respeitam o acesso da sua sessão. Os indicadores de municípios e forças vistoriadas e os nomes dos autores ainda dependem de informações não fornecidas pela API.</p>
+          <p>Dados de apresentação.</p>
         </div>
       )}
       {data.notices?.length > 0 && (
@@ -61,7 +62,9 @@ export default function Home({ accessToken, loadData, onNavigateReports, onNavig
       )}
       {download.error && <p role="alert" className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">{download.error.message}</p>}
       <Dashboard data={data} state={state} onViewReport={onNavigateReport ? (report) => onNavigateReport(report.id) : undefined}
-        onDownloadReport={(report) => download.download(report.id)} downloadBusyId={download.busyId} />
+        onDownloadReport={(report) => {
+          if (!downloadPresentationExample(report.id)) download.download(report.id)
+        }} downloadBusyId={download.busyId} />
     </div>
   )
 }

@@ -35,9 +35,9 @@ export function useReportMunicipalities(accessToken: string) {
   return useReportQuery<Municipality[]>(accessToken, load)
 }
 
-export function useReport(accessToken: string, id: string) {
+export function useReport(accessToken: string, id: string, enabled = true) {
   const load = useCallback((signal: AbortSignal) => findReport(accessToken, id, signal), [accessToken, id])
-  return useReportQuery<Report>(`${accessToken}:${id}`, load)
+  return useReportQuery<Report>(`${accessToken}:${id}`, load, enabled)
 }
 
 export function useReportPdf(accessToken: string, id: string, enabled: boolean) {

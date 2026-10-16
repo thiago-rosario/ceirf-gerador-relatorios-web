@@ -9,6 +9,8 @@ import { Input } from '@/components/ui/input'
 import { useReportAccessError, useReportDownload, useReportMunicipalities, useReports } from '@/hooks/use-reports'
 import { parseReportSearch, reportSearchCorrectionHref, reportSearchHref } from '@/service/reports-navigation'
 import type { Coordination, SessionUser } from '@/types/users'
+import { presentationEnabled } from '@/service/presentation-config'
+import { downloadPresentationExample, presentationReports, searchPresentationExamples } from '@/service/presentation-data'
 
 type SearchReportsProps = {
   accessToken: string
@@ -23,10 +25,15 @@ export default function SearchReports({ accessToken, search, coordination, onNav
   const filters = parseReportSearch(search)
   const [municipalityId, setMunicipalityId] = useState(filters.municipalityId)
   const [typology, setTypology] = useState(filters.typology)
-  const results = useReports(accessToken, filters.municipalityId, filters.typology, filters.page)
+  const apiResults = useReports(accessToken, filters.municipalityId, filters.typology, filters.page)
   const municipalities = useReportMunicipalities(accessToken)
+  const showExamples = presentationEnabled && ![401, 403].includes(apiResults.error?.status ?? 0)
+    && (!apiResults.data || apiResults.data.pagination.total === 0)
+  const catalogue = municipalities.data?.length ? municipalities.data : presentationEnabled
+    ? presentationReports.map((report) => report.cover.municipality).filter((item, index, rows) => rows.findIndex((row) => row.name === item.name) === index) : []
+  const results = showExamples ? { ...apiResults, data: searchPresentationExamples({ ...filters, municipalities: catalogue }), error: null, isLoading: false } : apiResults
   const download = useReportDownload(accessToken)
-  useReportAccessError(results.error, onSessionInvalid, refreshUser)
+  useReportAccessError(apiResults.error, onSessionInvalid, refreshUser)
   useReportAccessError(municipalities.error, onSessionInvalid, refreshUser)
   useReportAccessError(download.error, onSessionInvalid, refreshUser)
 
@@ -59,12 +66,12 @@ export default function SearchReports({ accessToken, search, coordination, onNav
         {coordination ? <h2 className="text-[26px] font-bold text-[#073574] sm:text-[30px]">Pesquisar Relatório</h2>
           : <h1 className="text-[26px] font-bold text-[#073574] sm:text-[30px]">Pesquisar Relatório</h1>}
         <span aria-hidden="true" className="ml-24 mt-2 block h-1.5 w-9 rounded-full bg-[#073574]" />
-        <p className="mt-4 text-sm text-slate-600">Consulte relatórios de todas as coordenações.</p>
+        <p className="mt-4 text-sm text-slate-600">Consulte relatórios de todas as coordenações.{showExamples && ' Dados de apresentação.'}</p>
       </div>
       <section aria-label="Pesquisa de relatórios" className="rounded-[28px] border border-[#dedede] bg-white p-5 shadow-[0_2px_16px_rgba(7,53,116,0.05)] sm:rounded-[40px] sm:p-7 lg:rounded-[48px] lg:p-9">
         <form onSubmit={submit} className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)_auto_auto] lg:items-end">
           <div className="min-w-0"><label htmlFor="report-municipality" className="mb-2 block text-base font-bold text-[#073574]">Município</label>
-            <MunicipalityPicker municipalities={municipalities.data ?? []} value={municipalityId} onChange={setMunicipalityId} disabled={municipalities.isLoading || Boolean(municipalities.error)} />
+            <MunicipalityPicker municipalities={catalogue} value={municipalityId} onChange={setMunicipalityId} disabled={!presentationEnabled && (municipalities.isLoading || Boolean(municipalities.error))} />
           </div>
           <div className="min-w-0"><label htmlFor="report-typology" className="mb-2 block text-base font-bold text-[#073574]">Pleito / Tipologia</label>
             <Input id="report-typology" placeholder="Todas as tipologias" value={typology} maxLength={100} className="h-12 rounded-xl bg-white px-4 text-base" onChange={(event) => setTypology(event.target.value)} />
@@ -75,8 +82,8 @@ export default function SearchReports({ accessToken, search, coordination, onNav
           </Button>
           <Button type="button" variant="secondary" className="h-12 gap-2 rounded-xl border border-[#d8d8d8] bg-[#e8e8e8] px-5 text-base font-semibold text-[#073574] hover:bg-[#dedede]" onClick={reset}><FilterXIcon aria-hidden="true" className="size-5" />Limpar Filtro</Button>
         </form>
-        {municipalities.isLoading && <p role="status" className="mt-3 text-sm text-slate-500">Carregando municípios…</p>}
-        {municipalities.error && <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+        {municipalities.isLoading && !showExamples && <p role="status" className="mt-3 text-sm text-slate-500">Carregando municípios…</p>}
+        {municipalities.error && !showExamples && <div role="alert" className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           <p>Não foi possível carregar os municípios. {municipalities.error.message}</p><Button variant="outline" className="mt-3 h-11 bg-white" onClick={municipalities.reload}>Tentar novamente</Button>
         </div>}
         <p role="status" aria-live="polite" className="mb-3 mt-6 text-sm text-slate-500 sm:text-base">{results.isLoading ? 'Consultando resultados…' : results.data ? <><strong className="font-bold text-[#073574]">{results.data.pagination.total}</strong> {results.data.pagination.total === 1 ? 'resultado encontrado' : 'resultados encontrados'}</> : 'A pesquisa não pôde ser concluída.'}</p>
@@ -84,7 +91,8 @@ export default function SearchReports({ accessToken, search, coordination, onNav
         {results.error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-5 text-sm leading-6 text-red-800">
           <p>{results.error.status === 403 ? 'Você não tem permissão para consultar relatórios. Sua sessão foi revalidada.' : results.error.message}</p><Button variant="outline" className="mt-4 h-11 bg-white" onClick={results.reload}>Tentar novamente</Button>
         </div> : <>
-          <ReportsTable reports={results.data?.reports ?? []} isLoading={results.isLoading} searchHref={searchHref} busyId={download.busyId} onNavigate={onNavigate} onDownload={download.download} />
+          <ReportsTable reports={results.data?.reports ?? []} isLoading={results.isLoading} searchHref={searchHref} busyId={download.busyId} onNavigate={onNavigate}
+            onDownload={(id) => { if (!downloadPresentationExample(id)) download.download(id) }} />
           {results.data && <ReportPagination pagination={results.data.pagination} disabled={results.isLoading} onPage={(page) => onNavigate(reportSearchHref({ ...filters, page }))} />}
         </>}
       </section>

@@ -60,15 +60,34 @@ after(async () => {
 const render = (Component, props) => renderToStaticMarkup(createElement(Component, props));
 const common = { accessToken: 'token', search: '', onNavigate: noop, onSessionInvalid: noop, refreshUser: async () => user };
 
-test('pesquisa renderiza cabeçalho CEIRF, filtros e carregamento sem registros simulados', () => {
+test('pesquisa apresenta filtros e aplica a tipologia nos exemplos locais durante a apresentação', () => {
   const html = render(SearchReports, { ...common, search: '?typology=DEAM+1B&page=3' });
   assert.match(html, /<h1[^>]*>Pesquisar Relatório<\/h1>/);
   assert.match(html, /relatórios de todas as coordenações/);
   assert.match(html, /Município|Pleito \/ Tipologia/);
   assert.match(html, /value="DEAM 1B"/);
   assert.match(html, /Limpar Filtro/);
-  assert.match(html, /Consultando resultados|Carregando relatórios/);
+  assert.match(html, /Dados de apresentação/);
+  assert.match(html, /Nenhum relatório encontrado/);
   assert.doesNotMatch(html, /Vitória da Conquista|Bom Jesus da Serra|DEAM 1B.*13\/02/);
+});
+
+test('pesquisa sem filtros mostra exemplos com links de visualização e PDFs disponíveis', () => {
+  const html = render(SearchReports, common);
+  assert.match(html, /Salvador|Camaçari|Ilhéus/);
+  assert.match(html, /dece0000-0000-4000-8000-000000000001/);
+  assert.match(html, /Visualizar|Baixar/);
+});
+
+test('visualização do exemplo abre PDF estático e rascunho exibe conteúdo sem habilitar download', () => {
+  const completed = render(ViewReport, { ...common, reportId: 'dece0000-0000-4000-8000-000000000001', user });
+  assert.match(completed, /presentation\/relatorio-exemplo-1.pdf/);
+  assert.match(completed, /Concluído/);
+  assert.doesNotMatch(completed, /Carregando informações do relatório/);
+  const draft = render(ViewReport, { ...common, reportId: 'dece0000-0000-4000-8000-000000000004', user });
+  assert.match(draft, /Em elaboração/);
+  assert.match(draft, /Conclusão técnica/);
+  assert.doesNotMatch(draft, /<iframe|Continuar preenchimento/);
 });
 
 test('contexto visual da coordenação mantém texto da pesquisa global e botão de retorno às ações', () => {

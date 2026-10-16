@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { DashboardData, DashboardLoader, DashboardState } from '@/types/dashboard'
-import { loadDashboard } from '@/service/dashboard-service'
+import { dashboardDemoData, loadDashboardDemo } from '@/service/dashboard-demo'
 
 const unavailableData: DashboardData = {
   metrics: { municipalities: null, forces: null, reports: null },
@@ -10,7 +10,7 @@ const unavailableData: DashboardData = {
 
 type ApiError = Error & { status?: number }
 
-export function useDashboardData(accessToken: string, load: DashboardLoader = loadDashboard) {
+export function useDashboardData(accessToken: string, load: DashboardLoader = loadDashboardDemo) {
   const [attempt, setAttempt] = useState(0)
   const [result, setResult] = useState<{
     data: DashboardData
@@ -49,7 +49,12 @@ export function useDashboardData(accessToken: string, load: DashboardLoader = lo
 
   // Never expose the previous user's data while a new session starts loading.
   if (result.accessToken !== accessToken || result.load !== load || result.attempt !== attempt) {
-    return { data: unavailableData, state: 'loading' as const, error: null, retry: () => setAttempt((value) => value + 1) }
+    return {
+      data: load === loadDashboardDemo ? dashboardDemoData : unavailableData,
+      state: load === loadDashboardDemo ? 'ready' as const : 'loading' as const,
+      error: null,
+      retry: () => setAttempt((value) => value + 1),
+    }
   }
 
   return { ...result, retry: () => setAttempt((value) => value + 1) }

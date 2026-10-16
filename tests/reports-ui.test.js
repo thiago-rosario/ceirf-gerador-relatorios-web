@@ -344,18 +344,19 @@ for (const role of ['VIEWER', 'REVIEWER', 'OPERATOR', 'SUPERUSER']) {
   });
 }
 
-test('o destino de revisão comunica indisponibilidade sem apresentar uma fila simulada', () => {
+test('o destino de revisão apresenta a fila de exemplos para um usuário autorizado', () => {
   const html = renderToStaticMarkup(createElement(ReportDestination, {
     screen: 'review',
     coordination: otherCoordination,
+    user: makeUser('SUPERUSER'),
     onBack: noop,
   }));
 
   assert.match(html, />COPROJ<\/h1>/);
   assert.match(html, /<h2\b[^>]*>Relatórios em Revisão<\/h2>/);
-  assert.match(html, /role="status"/);
-  assert.match(html, /A fila de revisão ainda não está disponível/);
-  assert.match(html, /relatórios que você tem permissão para revisar/);
+  assert.match(html, /Dados mockados para apresentação/);
+  assert.match(html, /Vitória da Conquista|Ilhéus/);
+  assert.match(html, /Aprovar relatório|Solicitar correção/);
   assert.match(html, /href="\/relatorios\/coordenacoes\/3"/);
-  assert.doesNotMatch(html, /<table\b|<tbody\b|<input\b|<form\b|download=/);
+  assert.match(html, /<table\b/);
 });

@@ -6,6 +6,9 @@ import { useReport, useReportAccessError, useReportDownload, useReportPdf } from
 import { reportDateLabel, reportReturnHref } from '@/service/reports-navigation'
 import { getReportPermissions } from '@/service/reports-access'
 import type { SessionUser } from '@/types/users'
+import { presentationEnabled } from '@/service/presentation-config'
+import { downloadPresentationExample, findPresentationExample } from '@/service/presentation-data'
+import { ReportStatusBadge } from '@/components/dashboard/report-presentation'
 
 type ViewReportProps = {
   accessToken: string
@@ -33,8 +36,11 @@ export function ReportInformation({ report }: { report: import('@/types/reports'
 
 export default function ViewReport({ accessToken, reportId, search, onNavigate, onSessionInvalid, refreshUser, user }: ViewReportProps) {
   const backHref = reportReturnHref(search)
-  const report = useReport(accessToken, reportId)
-  const pdf = useReportPdf(accessToken, reportId, Boolean(report.data?.generated_document))
+  const example = presentationEnabled ? findPresentationExample(reportId) : undefined
+  const apiReport = useReport(accessToken, reportId, !example)
+  const report = example ? { ...apiReport, data: example, error: null, isLoading: false } : apiReport
+  const apiPdf = useReportPdf(accessToken, reportId, !example && Boolean(report.data?.generated_document))
+  const pdf = example ? { ...apiPdf, url: example.generated_document ? example.pdfUrl : undefined, error: null, isLoading: false } : apiPdf
   const download = useReportDownload(accessToken)
   useReportAccessError(report.error, onSessionInvalid, refreshUser)
   useReportAccessError(pdf.error, onSessionInvalid, refreshUser)
@@ -42,7 +48,7 @@ export default function ViewReport({ accessToken, reportId, search, onNavigate, 
 
   const metadataError = report.error?.status === 404 ? 'O relatório solicitado não foi encontrado.'
     : report.error?.status === 403 ? 'Você não tem permissão para consultar este relatório.' : report.error?.message
-  const canResume = report.data?.status === 'DRAFT' && getReportPermissions(user, report.data.coordination_id).create
+  const canResume = !example && report.data?.status === 'DRAFT' && getReportPermissions(user, report.data.coordination_id).create
     && (user?.role !== 'OPERATOR' || report.data.created_by === user.id)
   const resumeHref = `/relatorios/coordenacoes/${report.data?.coordination_id}/novo?draft_id=${reportId}`
 
@@ -52,12 +58,17 @@ export default function ViewReport({ accessToken, reportId, search, onNavigate, 
         : report.error ? <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-6 text-sm text-red-800"><p>{metadataError}</p><Button variant="outline" className="mt-4 h-11 bg-white" onClick={report.reload}>Tentar novamente</Button></div>
           : report.data && <>
             <ReportInformation report={report.data} />
+            {example && <div className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-slate-500">Relatório de exemplo para apresentação.</p><ReportStatusBadge status={example.status} /></div>
+              <p className="text-sm text-slate-600"><strong>Colaboradores:</strong> {example.general_information.collaborators}</p>
+              <p className="text-sm leading-6 text-slate-600"><strong>Conclusão técnica:</strong> {example.conclusion.content}</p>
+            </div>}
             {canResume && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-200 bg-blue-50 p-4"><p className="text-sm text-[#073574]">Este relatório é um rascunho. Continue preenchendo as nove etapas antes de gerar o PDF.</p><Button className="h-11" onClick={() => onNavigate(resumeHref)}>Continuar preenchimento</Button></div>}
             <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm leading-6 text-slate-500">Use os controles do visualizador para navegar pelas páginas, ajustar o zoom e imprimir.</p>
               <div className="flex flex-wrap gap-3">
                 {pdf.url && <Button variant="outline" nativeButton={false} render={<a href={pdf.url} target="_blank" rel="noopener noreferrer" />} className="h-11 gap-2 px-4 text-[#073574]"><ExternalLinkIcon aria-hidden="true" className="size-5" />Abrir PDF em outra aba</Button>}
-                <Button className="h-11 gap-2 bg-[#008f49] px-4 hover:bg-[#00763c]" disabled={!report.data.generated_document || Boolean(download.busyId)} onClick={() => download.download(reportId)}>
+                <Button className="h-11 gap-2 bg-[#008f49] px-4 hover:bg-[#00763c]" disabled={!report.data.generated_document || Boolean(download.busyId)} onClick={() => { if (!downloadPresentationExample(reportId)) download.download(reportId) }}>
                   {download.busyId ? <LoaderCircleIcon aria-hidden="true" className="size-5 animate-spin motion-reduce:animate-none" /> : <DownloadIcon aria-hidden="true" className="size-5" />}{download.busyId ? 'Baixando…' : 'Baixar PDF'}
                 </Button>
               </div>

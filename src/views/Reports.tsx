@@ -12,6 +12,8 @@ import ReportDestination from './ReportDestination'
 import SearchReports from './SearchReports'
 import ViewReport from './ViewReport'
 import CreateReport from './CreateReport'
+import CreatePresentationReport from './CreatePresentationReport'
+import { presentationEnabled } from '@/service/presentation-config'
 
 type ReportsProps = {
   pathname: string
@@ -53,12 +55,16 @@ export default function Reports({ pathname, search = '', accessToken, user, onBa
     <CoordinationActions coordination={selected} user={user} onBack={backToCoordinations} onNavigate={onNavigate} />
   )
   if (allowed && selected && !isLoading && route?.screen === 'create') return (
-    <CreateReport key={`${selected.id}:${new URLSearchParams(search).get('draft_id') ?? 'new'}`} accessToken={accessToken} coordination={selected} search={search}
+    presentationEnabled && selected.code.toUpperCase() !== 'COTEC'
+      ? <CreatePresentationReport key={selected.id} accessToken={accessToken} coordination={selected} user={user} search={search}
+        onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} onNavigate={onNavigate}
+        onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
+      : <CreateReport key={`${selected.id}:${new URLSearchParams(search).get('draft_id') ?? 'new'}`} accessToken={accessToken} coordination={selected} search={search}
       onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} onNavigate={onNavigate}
       onSessionInvalid={onSessionInvalid} refreshUser={refreshUser} />
   )
   if (allowed && selected && !isLoading && route?.screen === 'review') return (
-    <ReportDestination screen="review" coordination={selected} onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} />
+    <ReportDestination screen="review" coordination={selected} user={user} onBack={() => onNavigate(`/relatorios/coordenacoes/${selected.id}`)} />
   )
 
   return (
