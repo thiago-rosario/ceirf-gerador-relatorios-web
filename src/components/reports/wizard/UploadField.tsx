@@ -1,9 +1,9 @@
 import { useEffect, useId, useRef, useState } from 'react'
-import { FileImageIcon, FileTextIcon, ImagePlusIcon, LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react'
+import { CheckCircle2Icon, CircleAlertIcon, FileImageIcon, FileTextIcon, ImagePlusIcon, LoaderCircleIcon, RefreshCwIcon, Trash2Icon } from 'lucide-react'
 import Button from '@/components/Button'
 import Input from '@/components/Input'
 import type { ReportAsset } from '@/types/report-draft'
-import { textLength, truncateText } from '@/service/report-form-model'
+import { isAssetConfirmed, textLength, truncateText } from '@/service/report-form-model'
 
 type UploadFieldProps = {
   title: string
@@ -17,15 +17,16 @@ type UploadFieldProps = {
   disabled?: boolean
   onSelect: (file: File) => Promise<string | null> | string | null
   onRemove?: () => void
+  onRetry?: () => void
   onCaptionChange?: (caption: string) => void
   onDescriptionChange?: (description: string) => void
 }
 
 function fileSize(bytes: number) {
-  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB` : `${Math.ceil(bytes / 1024)} KB`
+  return bytes >= 1024 * 1024 ? `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MiB` : `${Math.ceil(bytes / 1024)} KiB`
 }
 
-export function UploadField({ title, asset, number, required, caption, editableCaption, description, busy, disabled, onSelect, onRemove, onCaptionChange, onDescriptionChange }: UploadFieldProps) {
+export function UploadField({ title, asset, number, required, caption, editableCaption, description, busy, disabled, onSelect, onRemove, onRetry, onCaptionChange, onDescriptionChange }: UploadFieldProps) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const previewRef = useRef<HTMLImageElement>(null)
@@ -33,8 +34,16 @@ export function UploadField({ title, asset, number, required, caption, editableC
   const [error, setError] = useState<string | null>(null)
   const [checking, setChecking] = useState(false)
   const serverAsset = Boolean(asset?.reference && !asset.file)
-  const unavailable = Boolean(disabled || busy || checking)
-  const selectionUnavailable = unavailable || serverAsset
+  const uploadStatus = asset?.uploadStatus
+  const uploading = uploadStatus === 'hashing' || uploadStatus === 'uploading' || uploadStatus === 'processing'
+  const confirmed = Boolean(asset && isAssetConfirmed(asset))
+  const unavailable = Boolean(disabled || busy || checking || uploading)
+  const statusText = uploadStatus === 'hashing' ? 'Calculando checksum SHA-256…'
+    : uploadStatus === 'uploading' ? 'Enviando arquivo…'
+      : uploadStatus === 'processing' ? 'Processando arquivo e confirmando vínculo ao relatório…'
+        : uploadStatus === 'error' ? 'Envio não confirmado'
+          : confirmed ? 'Arquivo enviado e vinculado ao relatório'
+            : 'Aguardando envio ao servidor'
   const isImage = Boolean(asset?.mimeType.startsWith('image/'))
   const file = asset?.file
 
@@ -65,7 +74,7 @@ export function UploadField({ title, asset, number, required, caption, editableC
         accept=".png,.jpg,.jpeg,.pdf,image/png,image/jpeg,application/pdf"
         className="sr-only"
         tabIndex={-1}
-        disabled={selectionUnavailable}
+        disabled={unavailable}
         aria-label={asset ? `Substituir ${title}` : `Selecionar arquivo para ${title}`}
         onChange={async (event) => {
           const selected = event.currentTarget.files?.[0]
@@ -76,7 +85,7 @@ export function UploadField({ title, asset, number, required, caption, editableC
           try {
             setError(await onSelect(selected))
           } catch {
-            setError('Não foi possível verificar o arquivo. Selecione-o novamente.')
+            setError('Não foi possível enviar o arquivo. Tente novamente.')
           } finally {
             setChecking(false)
           }
@@ -99,10 +108,10 @@ export function UploadField({ title, asset, number, required, caption, editableC
           <div className="mt-3 flex items-start justify-between gap-3">
             <div className="min-w-0">
               <p className="break-all text-sm font-medium text-slate-700">{asset.name}</p>
-              <p className="mt-1 text-xs text-slate-500">{fileSize(asset.size)} · {serverAsset ? 'Arquivo registrado no servidor' : 'Selecionado neste navegador'}</p>
+              <p className="mt-1 text-xs text-slate-500">{fileSize(asset.size)} · {confirmed ? 'Arquivo registrado no servidor' : 'Envio ainda não confirmado'}</p>
             </div>
             <div className="flex shrink-0 gap-1">
-              <button type="button" disabled={selectionUnavailable} aria-label={`Substituir ${asset.name}`} title={serverAsset ? 'A substituição depende da API de envio de arquivos' : 'Substituir arquivo'} onClick={() => inputRef.current?.click()} className="flex size-10 items-center justify-center rounded-lg text-[#073574] hover:bg-blue-50 focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40">
+              <button type="button" disabled={unavailable} aria-label={`Substituir ${asset.name}`} title="Substituir arquivo" onClick={() => inputRef.current?.click()} className="flex size-10 items-center justify-center rounded-lg text-[#073574] hover:bg-blue-50 focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40">
                 <RefreshCwIcon size={18} aria-hidden="true" />
               </button>
               <button type="button" disabled={unavailable || !onRemove} aria-label={`Remover ${asset.name} do relatório`} title="Remover do relatório" onClick={() => { onRemove?.(); setError(null) }} className="flex size-10 items-center justify-center rounded-lg text-red-600 hover:bg-red-50 focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40">
@@ -110,6 +119,11 @@ export function UploadField({ title, asset, number, required, caption, editableC
               </button>
             </div>
           </div>
+          <div role={uploadStatus === 'error' ? 'alert' : 'status'} aria-live="polite" className={`mt-3 flex items-start gap-2 rounded-lg px-3 py-2 text-sm ${uploadStatus === 'error' ? 'bg-red-50 text-red-700' : confirmed ? 'bg-green-50 text-green-800' : 'bg-blue-50 text-blue-900'}`}>
+            {uploading ? <LoaderCircleIcon size={18} className="mt-0.5 shrink-0 animate-spin" aria-hidden="true" /> : confirmed ? <CheckCircle2Icon size={18} className="mt-0.5 shrink-0" aria-hidden="true" /> : <CircleAlertIcon size={18} className="mt-0.5 shrink-0" aria-hidden="true" />}
+            <div className="min-w-0 flex-1"><p>{statusText}</p>{uploadStatus === 'error' && <p className="mt-1">{asset.uploadError || 'Não foi possível confirmar o envio e o vínculo deste arquivo. Tente novamente.'}</p>}</div>
+          </div>
+          {uploadStatus === 'error' && onRetry && <button type="button" disabled={unavailable} onClick={() => { setError(null); onRetry() }} className="mt-3 inline-flex min-h-10 items-center gap-2 rounded-lg border border-red-200 px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50 focus-visible:outline-2 disabled:cursor-not-allowed disabled:opacity-40"><RefreshCwIcon size={16} aria-hidden="true" />Tentar envio novamente</button>}
           {number !== undefined && <p className="mt-4 text-sm font-semibold text-[#073574]">Figura {number}{caption ? ` — ${caption}` : ''}</p>}
           {editableCaption && <div className="mt-4">
             <label htmlFor={`${id}-caption`} className="mb-2 block text-sm font-semibold text-[#073574]">Legenda <span className="text-red-600">*</span></label>
@@ -123,14 +137,14 @@ export function UploadField({ title, asset, number, required, caption, editableC
             <p id={`${id}-description-count`} className="mt-1 text-right text-xs text-slate-500">{textLength(asset.description)}/500 · máximo disponível: 500 caracteres</p>
             {!asset.description.trim() && <p id={`${id}-description-error`} className="mt-1 text-sm text-amber-700">Informe a descrição para finalizar o relatório.</p>}
           </div>}
-          {serverAsset && <p className="mt-3 text-xs leading-relaxed text-slate-500">A pré-visualização e a substituição deste arquivo dependem da API de arquivos. {editableCaption || description ? 'A remoção do relatório e as alterações dos textos serão enviadas no salvamento.' : 'A remoção do relatório será enviada no salvamento.'}</p>}
+          {serverAsset && <p className="mt-3 text-xs leading-relaxed text-slate-500">Arquivo recuperado do servidor. Você pode substituí-lo ou remover sua referência do relatório.</p>}
         </>
       ) : (
         <div className="flex min-h-48 flex-col items-center justify-center rounded-xl border-2 border-dashed border-blue-200 bg-blue-50/40 px-4 py-6 text-center">
           {checking ? <LoaderCircleIcon size={34} aria-hidden="true" className="animate-spin text-blue-800" /> : <ImagePlusIcon size={34} strokeWidth={1.5} aria-hidden="true" className="text-blue-800" />}
-          <p className="mb-4 mt-3 text-sm text-slate-500">PNG, JPG, JPEG ou PDF · até 5 MB por arquivo</p>
-          <Button type="button" className="max-w-56 !h-11 !rounded-lg !text-sm" disabled={selectionUnavailable} onClick={() => inputRef.current?.click()}>
-            {checking ? 'Verificando arquivo…' : 'Selecionar arquivo'}
+          <p className="mb-4 mt-3 text-sm text-slate-500">PNG, JPG, JPEG ou PDF · até 25 MiB por arquivo</p>
+          <Button type="button" className="max-w-56 !h-11 !rounded-lg !text-sm" disabled={unavailable} onClick={() => inputRef.current?.click()}>
+            {checking ? 'Preparando envio…' : 'Selecionar arquivo'}
           </Button>
         </div>
       )}

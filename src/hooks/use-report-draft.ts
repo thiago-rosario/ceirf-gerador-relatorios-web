@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createReportDraft, generateReportDraft, loadReportDraft, updateReportDraft } from '@/service/report-draft-service'
-import { draftFieldsPayload, emptyReportDraft, hydrateReportDraft, validInspectionDate } from '@/service/report-form-model'
+import { draftFieldsPayload, emptyReportDraft, getStepIssues, hydrateReportDraft, isAssetConfirmed, validInspectionDate } from '@/service/report-form-model'
+import { createReportMediaController } from '@/controller/report-media-controller'
 import type { ReportDraft } from '@/types/report-draft'
 
-type SavedDraft = { draft: ReportDraft; id: string | null; fingerprint: string; step: number; modified?: boolean; pending?: Promise<string>; finalized?: boolean; generating?: boolean; generation?: Promise<unknown>; error?: ApiError }
+type SavedDraft = { draft: ReportDraft; id: string | null; fingerprint: string; step: number; modified?: boolean; pending?: Promise<string>; finalized?: boolean; generating?: boolean; generation?: Promise<unknown>; error?: ApiError; mediaError?: ApiError; media?: ReturnType<typeof createReportMediaController>; notify?: () => void }
 type ApiError = Error & { status?: number; errors?: Record<string, string[]> }
 const draftCache = new Map<string, SavedDraft>()
 // Memory is scoped to the authenticated session; it is never presented as server persistence.
@@ -21,20 +22,31 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [loadError, setLoadError] = useState<ApiError | null>(null)
   const [saveError, setSaveError] = useState<ApiError | null>(start.current?.error ?? null)
+  const [mediaError, setMediaError] = useState<ApiError | null>(start.current?.mediaError ?? null)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<string | null>(null)
   const [savedFingerprint, setSavedFingerprint] = useState(start.current?.fingerprint ?? '')
   const [generating, setGenerating] = useState(Boolean(start.current?.generating))
   const entry = useRef<SavedDraft>(start.current ?? { draft, id, fingerprint: savedFingerprint, step })
-  const current = useRef({ draft, id, fingerprint: savedFingerprint, step })
   const onIdRef = useRef(onId)
   const alive = useRef(true)
   const startedEditing = useRef(Boolean(start.current?.modified))
-  current.current = { draft, id, fingerprint: savedFingerprint, step }
   onIdRef.current = onId
 
   useEffect(() => {
     alive.current = true
+    const savedEntry = entry.current
+    const synchronizeEntry = () => {
+      setDraft(entry.current.draft)
+      setId(entry.current.id)
+      setSavedFingerprint(entry.current.fingerprint)
+      setSaveError(entry.current.error ?? null)
+      setMediaError(entry.current.mediaError ?? null)
+      setSaving(Boolean(entry.current.pending))
+      if (entry.current.id) onIdRef.current(entry.current.id)
+    }
+    entry.current.notify = synchronizeEntry
+    synchronizeEntry()
     if (entry.current.pending) {
       const synchronize = () => {
         if (!alive.current) return
@@ -53,7 +65,10 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
         if (entry.current.finalized) setLoadError(new Error('Este relatório foi finalizado. Consulte o documento pela listagem de relatórios.'))
       }).catch(() => {})
     }
-    return () => { alive.current = false }
+    return () => {
+      alive.current = false
+      if (savedEntry.notify === synchronizeEntry) delete savedEntry.notify
+    }
   }, [])
 
   useEffect(() => {
@@ -64,6 +79,7 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
       if (report.status !== 'DRAFT') throw new Error('Este relatório já foi gerado e não pode ser editado como rascunho.')
       if (report.coordination_id !== coordinationId) throw new Error('Este rascunho pertence a outra coordenação.')
       const restored = hydrateReportDraft(report)
+      entry.current.draft = restored
       entry.current.fingerprint = JSON.stringify(draftFieldsPayload(restored))
       entry.current.id = report.id
       setDraft(restored)
@@ -81,7 +97,6 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
   useEffect(() => {
     if (!loading && !loadError && !entry.current.finalized) {
       // Share the entry across remounts; delayed saves only update metadata, never newer form values.
-      entry.current.draft = draft
       entry.current.step = step
       const cacheKey = `${sessionKey}:${entry.current.id ?? 'new'}`
       draftCache.set(cacheKey, entry.current)
@@ -89,29 +104,32 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     }
   }, [key, sessionKey, draft, id, savedFingerprint, step, loading, loadError])
 
-  const updateDraft = useCallback((next: ReportDraft) => {
+  const updateDraft = useCallback((change: ReportDraft | ((current: ReportDraft) => ReportDraft)) => {
     if (entry.current.finalized || entry.current.generating) return
+    const next = typeof change === 'function' ? change(entry.current.draft) : change
     startedEditing.current = true
     entry.current.modified = true
     delete entry.current.error
+    entry.current.draft = next
     setDraft(next)
     setSaveError(null)
   }, [])
 
-  const save = useCallback(async (): Promise<string> => {
+  const save = useCallback(async (force = false): Promise<string> => {
     // Serialize requests and capture the newest form only after a preceding request completes.
-    if (entry.current.pending) { await entry.current.pending; return save() }
+    if (entry.current.pending) { await entry.current.pending; return save(force) }
     if (entry.current.finalized) throw new Error('Este relatório já foi finalizado.')
-    const snapshot = current.current
-    const reportId = snapshot.id ?? entry.current.id
+    const snapshot = entry.current
+    const reportId = snapshot.id
     if (snapshot.draft.general_information.inspection_date && !validInspectionDate(snapshot.draft.general_information.inspection_date)) {
       const error = new Error('Corrija a data da vistoria antes de salvar. Os demais valores continuam disponíveis nesta sessão.')
-      setSaveError(error)
+      entry.current.error = error
+      entry.current.notify?.()
       throw error
     }
     const payload = draftFieldsPayload(snapshot.draft)
     const fingerprint = JSON.stringify(payload)
-    if (reportId && fingerprint === entry.current.fingerprint) {
+    if (!force && reportId && fingerprint === entry.current.fingerprint) {
       if (alive.current) { setId(reportId); setSavedFingerprint(fingerprint); onIdRef.current(reportId) }
       return reportId
     }
@@ -123,16 +141,17 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
           ? await updateReportDraft(accessToken, reportId, payload)
           : await createReportDraft(accessToken, coordinationId, payload)
         // Update the ref immediately: a following save must use PATCH even before React commits.
-        current.current = { ...current.current, id: result.id, fingerprint }
         entry.current.id = result.id
-        entry.current.fingerprint = fingerprint
+        // Creation deliberately omits all media sections; the next save must PATCH them.
+        entry.current.fingerprint = reportId ? fingerprint : ''
+        entry.current.media?.confirm(result)
         if (draftCache.get(key) === entry.current) {
           draftCache.set(`${sessionKey}:${result.id}`, entry.current)
           if (!initialId) draftCache.delete(key)
         }
         if (alive.current) {
           setId(result.id)
-          setSavedFingerprint(fingerprint)
+          setSavedFingerprint(entry.current.fingerprint)
           setSavedAt(new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Bahia' }).format(new Date()))
           onIdRef.current(result.id)
         }
@@ -143,12 +162,26 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
         throw error
       } finally {
         delete entry.current.pending
+        entry.current.notify?.()
         if (alive.current) setSaving(false)
       }
     })()
     entry.current.pending = operation
+    entry.current.notify?.()
     return operation
   }, [accessToken, coordinationId, key, sessionKey, initialId])
+
+  if (!entry.current.media) entry.current.media = createReportMediaController({
+    accessToken, getDraft: () => entry.current.draft, save,
+    canEdit: () => !entry.current.generating && !entry.current.finalized,
+    commit: (next) => {
+      entry.current.draft = next
+      entry.current.modified = true
+      startedEditing.current = true
+      entry.current.notify?.()
+    },
+    onError: (error) => { entry.current.mediaError = error; entry.current.notify?.() },
+  })
 
   const fingerprint = JSON.stringify(draftFieldsPayload(draft))
   const dirty = fingerprint !== savedFingerprint && (Boolean(id) || startedEditing.current)
@@ -158,7 +191,7 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     return () => clearTimeout(timer)
   }, [fingerprint, dirty, loading, loadError, save, generating])
 
-  const localFiles = draft.assets.filter((asset) => asset.file).length
+  const localFiles = draft.assets.filter((asset) => !isAssetConfirmed(asset)).length
   useEffect(() => {
     if ((!dirty || !startedEditing.current) && !localFiles) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
@@ -168,6 +201,12 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
 
   const generate = () => {
     if (generating || entry.current.generating) return null
+    if (getStepIssues(entry.current.draft).some((issues) => issues.length)) {
+      const error = new Error('Preencha as pendências e confirme o envio de todos os arquivos antes de finalizar.')
+      entry.current.error = error
+      setSaveError(error)
+      return null
+    }
     entry.current.generating = true
     delete entry.current.error
     setGenerating(true)
@@ -175,6 +214,7 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     const operation = (async () => {
       try {
         const reportId = await save()
+        if (getStepIssues(entry.current.draft).some((issues) => issues.length)) throw new Error('Existem arquivos ou campos pendentes de confirmação. Confira o relatório antes de finalizar.')
         const result = await generateReportDraft(accessToken, reportId)
         entry.current.finalized = true
         const completedKey = `${sessionKey}:${reportId}`
@@ -190,6 +230,7 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     return operation
   }
 
-  return { draft, updateDraft, id, step, setStep, loading, loadError, saveError, saving, savedAt, dirty, localFiles, save, generate, generating,
+  return { draft, updateDraft, id, step, setStep, loading, loadError, saveError, mediaError, saving, savedAt, dirty, localFiles, save, generate, generating,
+    selectMedia: entry.current.media.select, removeMedia: entry.current.media.remove, retryMedia: entry.current.media.retry,
     retryLoad: () => { setLoading(true); setLoadError(null); setLoadAttempt((value) => value + 1) } }
 }

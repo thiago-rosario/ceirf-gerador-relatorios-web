@@ -13,6 +13,7 @@ const titles = ['Capa', 'Informações Gerais', 'Localização do Terreno', 'Inf
   'Documentação Fotográfica', 'Anexos', 'Conclusão', 'Revisão Final'];
 const id = '550e8400-e29b-41d4-a716-446655440000';
 const noop = () => {};
+const mediaActions = { onSelectMedia: async () => null, onRemoveMedia: noop, onRetryMedia: noop };
 const render = (Component, props) => renderToStaticMarkup(createElement(Component, props));
 const municipality = { id: 7, name: 'Vitória da Conquista', state_code: 'BA' };
 const common = { accessToken: 'token', coordination: { id: 2, code: 'COTEC', name: 'Coordenação Técnica' }, search: '',
@@ -22,6 +23,7 @@ let cacheDirectory;
 let CreateReport;
 let CoverStep;
 let GeneralInformationStep;
+let ConclusionStep;
 let QuestionForm;
 let ReviewStep;
 let UploadField;
@@ -48,7 +50,7 @@ before(async () => {
             const draft = testState.draft ?? emptyReportDraft();
             return { draft, step: 0, id: null, loading: false, loadError: null, saveError: null, saving: false,
               savedAt: null, dirty: false, localFiles: draft.assets.filter((asset) => asset.file).length, generating: false,
-              updateDraft() {}, setStep() {}, retryLoad() {}, async save() { return 'draft-id'; }, async generate() { return null; }, ...testState };
+              updateDraft() {}, selectMedia: async () => null, removeMedia() {}, retryMedia() {}, setStep() {}, retryLoad() {}, async save() { return 'draft-id'; }, async generate() { return null; }, ...testState };
           }`;
       },
     }],
@@ -62,6 +64,7 @@ before(async () => {
     server.ssrLoadModule('/src/components/reports/wizard/UploadField.tsx'),
     server.ssrLoadModule('/src/components/reports/wizard/MediaSteps.tsx'),
     server.ssrLoadModule('/src/hooks/use-report-draft.ts'),
+    server.ssrLoadModule('/src/components/reports/wizard/ConclusionStep.tsx'),
   ]);
   CreateReport = modules[0].default;
   CoverStep = modules[1].CoverStep;
@@ -71,6 +74,7 @@ before(async () => {
   UploadField = modules[5].UploadField;
   ({ LocationStep, PreImplementationStep, PhotographsStep, AttachmentDocuments } = modules[6]);
   setTestState = modules[7].setTestState;
+  ConclusionStep = modules[8].ConclusionStep;
 });
 
 after(async () => { await server?.close(); if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true }); });
@@ -78,6 +82,64 @@ after(async () => { await server?.close(); if (cacheDirectory) await rm(cacheDir
 function renderWizard(step, extra = {}) {
   setTestState({ step, ...extra });
   return render(CreateReport, common);
+}
+
+function findElement(tree, predicate) {
+  if (Array.isArray(tree)) return tree.map((child) => findElement(child, predicate)).find(Boolean);
+  if (!tree?.props) return undefined;
+  return predicate(tree) ? tree : findElement(tree.props.children, predicate);
+}
+
+test('edições de campos usam o rascunho atual e preservam mídia confirmada após o render', () => {
+  const renderedDraft = emptyReportDraft();
+  const reference = { storage_identifier: 'reports/midia.png', file_name: 'midia.png', mime_type: 'image/png', size_bytes: 42, checksum: 'a'.repeat(64) };
+  const confirmed = { id, kind: 'state_map', name: reference.file_name, mimeType: reference.mime_type, size: reference.size_bytes,
+    checksum: reference.checksum, reference, order: 1, caption: '', description: '', uploadStatus: 'success' };
+  let current = { ...renderedDraft, assets: [confirmed], cover: { ...renderedDraft.cover, size: '1B' },
+    general_information: { ...renderedDraft.general_information, inspection_date: '2020-01-31' } };
+  const onChange = (update) => { assert.equal(typeof update, 'function'); current = update(current); };
+  const props = { draft: renderedDraft, onChange, issues: [], municipalities: [], isLoading: false, error: null, onRetry: noop };
+  for (const [Component, fieldId, value] of [
+    [CoverStep, 'cover-force', 'PM'],
+    [GeneralInformationStep, 'collaborators', 'Equipe atualizada'],
+    [ConclusionStep, 'report-conclusion', 'Conclusão atualizada'],
+  ]) {
+    const field = findElement(Component(props), (element) => element.props.id === fieldId);
+    assert.ok(field);
+    field.props.onChange({ target: { value } });
+    assert.equal(current.assets[0], confirmed);
+  }
+  assert.equal(current.cover.force, 'PM');
+  assert.equal(current.cover.size, '1B');
+  assert.equal(current.general_information.collaborators, 'Equipe atualizada');
+  assert.equal(current.general_information.inspection_date, '2020-01-31');
+  assert.equal(current.conclusion, 'Conclusão atualizada');
+});
+
+for (const [kind, Component, handler, field] of [
+  ['photograph', () => PhotographsStep, 'onCaptionChange', 'caption'],
+  ['other', () => AttachmentDocuments, 'onDescriptionChange', 'description'],
+]) {
+  test(`edição de ${field} acompanha a identidade local durante confirmação do UUID de ${kind}`, () => {
+    const asset = { id: 'uuid-temporario', clientId: 'identidade-local-estavel', kind, name: 'arquivo.png', mimeType: 'image/png',
+      size: 42, checksum: 'a'.repeat(64), order: 1, caption: 'Legenda', description: 'Descrição', uploadStatus: 'uploading' };
+    const renderedDraft = { ...emptyReportDraft(), assets: [asset] };
+    const reference = { storage_identifier: 'reports/midia.png', file_name: asset.name, mime_type: asset.mimeType, size_bytes: asset.size, checksum: asset.checksum };
+    const confirmed = { ...asset, id, reference, uploadStatus: 'success' };
+    let current = { ...renderedDraft, assets: [confirmed], conclusion: 'Conclusão editada em outra etapa' };
+    const onChange = (update) => { assert.equal(typeof update, 'function'); current = update(current); };
+    const props = { draft: renderedDraft, onChange, ...mediaActions };
+    const previousField = findElement(Component()(props), (element) => element.type === UploadField && element.props.asset === asset);
+    assert.ok(previousField);
+    previousField.props[handler]('Texto digitado durante a confirmação');
+    assert.equal(current.assets[0][field], 'Texto digitado durante a confirmação');
+    assert.equal(current.assets[0].id, id);
+    assert.equal(current.assets[0].reference, reference);
+    assert.equal(current.assets[0].uploadStatus, 'success');
+    assert.equal(current.conclusion, 'Conclusão editada em outra etapa');
+    const nextField = findElement(Component()({ ...props, draft: current }), (element) => element.type === UploadField && element.props.asset === current.assets[0]);
+    assert.equal(previousField.key, nextField.key);
+  });
 }
 
 for (const [index, title] of titles.entries()) {
@@ -165,19 +227,20 @@ for (const [title, items, expected] of [['infraestrutura', INFRASTRUCTURE, 10], 
 }
 
 test('localização distingue mapa opcional da imagem estadual obrigatória apenas para finalizar', () => {
-  const html = render(LocationStep, { draft: emptyReportDraft(), onChange: noop });
+  const html = render(LocationStep, { draft: emptyReportDraft(), onChange: noop, ...mediaActions });
   assert.match(html, /Mapa de Localização/);
   assert.match(html, /Localização do município em relação ao estado da Bahia/);
   assert.equal((html.match(/Obrigatório na finalização/g) ?? []).length, 1);
   assert.match(html, /Este arquivo será exigido para finalizar. Você pode continuar preenchendo as outras etapas/);
   assert.match(html, /Legenda automática: Localização do município em relação ao estado da Bahia/);
-  assert.match(html, /PNG, JPG, JPEG ou PDF · até 5 MB por arquivo/);
-  assert.match(html, /salvamento dos campos de texto não envia estes arquivos ao servidor/);
+  assert.match(html, /PNG, JPG, JPEG ou PDF · até 25 MiB por arquivo/);
+  assert.match(html, /Os arquivos selecionados são enviados ao servidor e vinculados ao relatório/);
+  assert.doesNotMatch(html, /API de envio de arquivos ainda não está disponível/);
   assert.equal((html.match(/<input[^>]*type="file"/g) ?? []).length, 2);
 });
 
 test('pré-implantação apresenta legenda e observação institucional fixas sem controles para editar o texto', () => {
-  const html = render(PreImplementationStep, { draft: emptyReportDraft(), onChange: noop });
+  const html = render(PreImplementationStep, { draft: emptyReportDraft(), onChange: noop, ...mediaActions });
   assert.match(html, /Legenda automática: Sugestão de pré-implantação COTEC/);
   assert.match(html, /A pré-implantação foi realizada com imagens de drone e não substitui o projeto de implantação/);
   assert.match(html, /Coordenação de Projetos após a realização dos estudos planialtimétricos e sondagens/);
@@ -185,7 +248,7 @@ test('pré-implantação apresenta legenda e observação institucional fixas se
   assert.doesNotMatch(html, /<textarea\b|contenteditable=|Obrigatório na finalização/);
 });
 
-test('upload selecionado apresenta preview, troca, remoção, figura e legenda sem alegar salvamento remoto', () => {
+test('upload selecionado apresenta preview, troca, remoção, figura e legenda enquanto aguarda confirmação', () => {
   const file = new File(['png-image'], 'terreno.png', { type: 'image/png' });
   const asset = { id, kind: 'photograph', name: file.name, mimeType: file.type, file, size: file.size,
     checksum: 'a'.repeat(64), order: 1, caption: 'Vista do terreno', description: '' };
@@ -193,18 +256,73 @@ test('upload selecionado apresenta preview, troca, remoção, figura e legenda s
   assert.match(html, /<img[^>]*alt="Vista do terreno"/);
   assert.match(html, /aria-label="Substituir terreno.png"/);
   assert.match(html, /aria-label="Remover terreno.png do relatório"/);
-  assert.match(html, /Selecionado neste navegador/);
+  assert.match(html, /Aguardando envio ao servidor/);
+  assert.match(html, /Envio ainda não confirmado/);
   assert.match(html, /Figura 2/);
   assert.match(html, /value="Vista do terreno"/);
   assert.match(html, /accept=".png,.jpg,.jpeg,.pdf,image\/png,image\/jpeg,application\/pdf"/);
   assert.doesNotMatch(html, /Arquivo registrado no servidor|upload concluído/);
 });
 
+for (const [uploadStatus, expected] of [
+  ['hashing', /Calculando checksum SHA-256/],
+  ['uploading', /Enviando arquivo/],
+  ['processing', /Processando arquivo e confirmando vínculo ao relatório/],
+]) {
+  test(`upload ${uploadStatus} mostra progresso e bloqueia substituição durante a operação`, () => {
+    const file = new File(['png'], 'terreno.png', { type: 'image/png' });
+    const asset = { id, kind: 'state_map', name: file.name, mimeType: file.type, file, size: file.size,
+      checksum: 'a'.repeat(64), order: 1, caption: '', description: '', uploadStatus };
+    const html = render(UploadField, { title: 'Mapa estadual', asset, onSelect: noop, onRemove: noop, onRetry: noop });
+    assert.match(html, expected);
+    assert.match(html, /role="status" aria-live="polite"/);
+    const replace = html.match(/<button\b[^>]*aria-label="Substituir terreno.png"[^>]*>/)?.[0];
+    assert.match(replace, /disabled=""/);
+    assert.doesNotMatch(html, /Arquivo enviado e vinculado ao relatório|Tentar envio novamente/);
+  });
+}
+
+test('arquivo recuperado mostra metadados e permite substituição e remoção', () => {
+  const asset = { id, kind: 'state_map', name: 'terreno.png', mimeType: 'image/png', size: 1048576,
+    checksum: 'a'.repeat(64), order: 1, caption: '', description: '',
+    reference: { storage_identifier: id, file_name: 'terreno.png', mime_type: 'image/png', size_bytes: 1048576, checksum: 'a'.repeat(64) } };
+  const html = render(UploadField, { title: 'Mapa estadual', asset, onSelect: noop, onRemove: noop });
+  assert.match(html, /Arquivo enviado e vinculado ao relatório/);
+  assert.match(html, /Arquivo registrado no servidor/);
+  assert.match(html, /terreno.png/);
+  assert.match(html, /Arquivo recuperado do servidor/);
+  assert.doesNotMatch(html, /Referência:|550e8400-e29b-41d4-a716-446655440000/);
+  assert.match(html, /1,0 MiB/);
+  for (const label of ['Substituir terreno.png', 'Remover terreno.png do relatório']) {
+    const button = html.match(new RegExp(`<button\\b[^>]*aria-label="${label}"[^>]*>`))?.[0];
+    assert.ok(button);
+    assert.doesNotMatch(button, /disabled=/);
+  }
+  assert.doesNotMatch(html, /dependem da API|depende da API/);
+});
+
+test('falha de upload mostra mensagem e ações de tentar novamente, substituir e remover', () => {
+  const file = new File(['pdf'], 'anexo.pdf', { type: 'application/pdf' });
+  const asset = { id, kind: 'other', name: file.name, mimeType: file.type, file, size: file.size,
+    checksum: 'a'.repeat(64), order: 1, caption: '', description: 'Laudo técnico', uploadStatus: 'error', uploadError: 'Servidor indisponível.' };
+  const html = render(UploadField, { title: 'Anexo', asset, onSelect: noop, onRemove: noop, onRetry: noop });
+  assert.match(html, /role="alert" aria-live="polite"/);
+  assert.match(html, /Envio não confirmado/);
+  assert.match(html, /Servidor indisponível/);
+  assert.match(html, /Tentar envio novamente/);
+  for (const label of ['Substituir anexo.pdf', 'Remover anexo.pdf do relatório']) {
+    const button = html.match(new RegExp(`<button\\b[^>]*aria-label="${label}"[^>]*>`))?.[0];
+    assert.ok(button);
+    assert.doesNotMatch(button, /disabled=/);
+  }
+  assert.doesNotMatch(html, /Arquivo enviado e vinculado ao relatório/);
+});
+
 test('fotografias mostram capacidade global e preservam ordem da numeração sem controles de reordenação', () => {
   const draft = emptyReportDraft();
   const asset = { id, kind: 'photograph', name: 'foto.pdf', mimeType: 'application/pdf', size: 120, checksum: 'b'.repeat(64), order: 5, caption: 'Vista geral', description: '' };
   draft.assets = [{ ...asset, id: 'state-map', kind: 'state_map', order: 1 }, asset];
-  const html = render(PhotographsStep, { draft, onChange: noop });
+  const html = render(PhotographsStep, { draft, onChange: noop, ...mediaActions });
   assert.match(html, /2\/20 figuras/);
   assert.match(html, /18 disponíveis/);
   assert.match(html, /Figura 2/);
@@ -216,7 +334,7 @@ test('anexos dividem documentos oficiais opcionais e exigem descrição de outro
   const draft = emptyReportDraft();
   draft.assets = [{ id, kind: 'other', file: new File(['pdf'], 'anexo.pdf', { type: 'application/pdf' }), name: 'anexo.pdf',
     mimeType: 'application/pdf', size: 3, checksum: 'c'.repeat(64), order: 1, caption: '', description: '' }];
-  const html = render(AttachmentDocuments, { draft, onChange: noop });
+  const html = render(AttachmentDocuments, { draft, onChange: noop, ...mediaActions });
   assert.match(html, /Documentos adicionais/);
   assert.match(html, /Mapa de Localização do Município|Planta Topográfica/);
   assert.match(html, /Outro documento 1|Adicionar outro documento/);
@@ -253,11 +371,26 @@ test('arquivo local continua pendente na revisão e impede finalizar mesmo com c
     checksum: 'd'.repeat(64), order: 1, caption: '', description: '' }];
   const html = renderWizard(8, { draft });
   assert.match(html, /arquivo local, envio pendente/);
-  assert.match(html, /aguardando envio ao servidor \(API de upload indisponível\)/);
+  assert.doesNotMatch(html, /API de upload indisponível/);
   const finalize = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].find(([button]) => button.includes('Finalizar relatório'))?.[0];
   assert.match(finalize, /disabled=""/);
   assert.doesNotMatch(html, /Todas as seções estão preenchidas/);
 });
+
+for (const [uploadStatus, expected] of [
+  ['processing', /processamento e vínculo pendentes/],
+  ['error', /envio não confirmado; tente novamente/],
+]) {
+  test(`revisão não confirma referência retornada quando vínculo está em ${uploadStatus}`, () => {
+    const draft = emptyReportDraft();
+    draft.assets = [{ id, kind: 'state_map', name: 'municipio.png', mimeType: 'image/png', size: 123,
+      checksum: 'a'.repeat(64), order: 1, caption: '', description: '', uploadStatus,
+      reference: { storage_identifier: id, file_name: 'municipio.png', mime_type: 'image/png', size_bytes: 123, checksum: 'a'.repeat(64) } }];
+    const html = render(ReviewStep, { draft, issues: getStepIssues(draft), municipalities: [], onSelect: noop });
+    assert.match(html, expected);
+    assert.doesNotMatch(html, /referência confirmada no servidor/);
+  });
+}
 
 test('falha de salvamento mantém navegação e informa que a confirmação do servidor não ocorreu', () => {
   const html = renderWizard(1, { saveError: Object.assign(new Error('Servidor indisponível.'), { errors: { collaborators: ['Informe os colaboradores.'] } }) });

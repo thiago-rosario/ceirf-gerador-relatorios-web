@@ -1,6 +1,6 @@
 import { CheckCircle2Icon, CircleAlertIcon, PencilIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { CHECKLIST, INFRASTRUCTURE, REPORT_STEPS, figureNumber } from '@/service/report-form-model'
+import { CHECKLIST, INFRASTRUCTURE, REPORT_STEPS, figureNumber, isAssetConfirmed } from '@/service/report-form-model'
 import type { ReportDraft, StepIssue } from '@/types/report-draft'
 import type { Municipality } from '@/types/reports'
 
@@ -10,7 +10,16 @@ export function ReviewStep({ draft, issues, municipalities, onSelect }: { draft:
   const date = draft.general_information.inspection_date
   const readableDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.split('-').reverse().join('/') : 'Não informada'
   const media = (kinds: string[]) => draft.assets.filter((asset) => kinds.includes(asset.kind))
-  const assetSummary = (kinds: string[]) => media(kinds).length ? media(kinds).map((asset) => <li key={asset.id} className="break-words">Figura {figureNumber(draft.assets, asset.id)} — {asset.name}{asset.caption && ` · ${asset.caption}`}{asset.description && ` · ${asset.description}`} <span className={asset.file ? 'text-amber-800' : 'text-green-700'}>({asset.file ? 'arquivo local, envio pendente' : 'referência no servidor'})</span></li>) : <li>Nenhum arquivo adicionado.</li>
+  const assetSummary = (kinds: string[]) => media(kinds).length ? media(kinds).map((asset) => {
+    const confirmed = isAssetConfirmed(asset)
+    const status = confirmed ? 'referência confirmada no servidor'
+      : asset.uploadStatus === 'error' ? 'envio não confirmado; tente novamente'
+        : asset.uploadStatus === 'hashing' ? 'calculando checksum SHA-256'
+          : asset.uploadStatus === 'uploading' ? 'envio em andamento'
+            : asset.uploadStatus === 'processing' ? 'processamento e vínculo pendentes'
+              : 'arquivo local, envio pendente'
+    return <li key={asset.id} className="break-words">Figura {figureNumber(draft.assets, asset.id)} — {asset.name}{asset.caption && ` · ${asset.caption}`}{asset.description && ` · ${asset.description}`} <span className={confirmed ? 'text-green-700' : 'text-amber-800'}>({status})</span></li>
+  }) : <li>Nenhum arquivo adicionado.</li>
   const answers = (items: string[][], values: ReportDraft['checklist']) => <dl className="grid gap-2 sm:grid-cols-2">{items.map(([key, label]) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className={values[key] ? 'font-medium' : 'text-amber-800'}>{values[key] || 'Resposta pendente'}</dd></div>)}</dl>
   const summaries = [
     <dl key="cover" className="grid gap-3 sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Município</dt><dd>{municipality}</dd></div><div><dt className="text-xs text-slate-500">Força / Tamanho</dt><dd>{draft.cover.force || 'Não informada'} / {draft.cover.size || 'Não informado'}</dd></div><div><dt className="text-xs text-slate-500">Tipologia</dt><dd className="break-words">{draft.cover.typology || 'Não informada'}</dd></div><div><dt className="text-xs text-slate-500">Nº SEI</dt><dd className="break-words">{draft.cover.sei_number || 'Não informado'}</dd></div></dl>,

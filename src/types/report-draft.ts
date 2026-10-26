@@ -3,6 +3,7 @@ export type AssetKind = 'location_map' | 'state_map' | 'pre_implementation' | 'p
 export type FileReference = { storage_identifier: string; file_name: string; mime_type: string; size_bytes: number; checksum: string }
 export type ReportAsset = {
   id: string
+  clientId?: string
   kind: AssetKind
   name: string
   mimeType: string
@@ -13,6 +14,10 @@ export type ReportAsset = {
   description: string
   file?: File
   reference?: FileReference
+  uploadStatus?: 'hashing' | 'uploading' | 'processing' | 'success' | 'error'
+  uploadError?: string
+  // Keep the linked file until a replacement has been uploaded and confirmed by PATCH.
+  previous?: ReportAsset
 }
 export type ReportDraft = {
   cover: { municipality_id: number | null; force: string; size: string; typology: string; sei_number: string }
@@ -21,6 +26,8 @@ export type ReportDraft = {
   checklist: Record<string, Answer>
   conclusion: string
   assets: ReportAsset[]
+  // Server references can be linked again without uploading the same bytes twice.
+  mediaHistory?: Record<string, ReportAsset>
   // The history prevents removing and adding a photograph again to change its position.
   photoHistory: Record<string, number>
   nextPhotoOrder: number
