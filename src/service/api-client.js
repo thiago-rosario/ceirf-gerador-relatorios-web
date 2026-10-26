@@ -1,6 +1,9 @@
 const apiUrl = (import.meta.env?.VITE_API_URL || '/api').replace(/\/$/, '')
 
-export const request = async (path, { method = 'GET', body, accessToken, signal, responseType = 'json', timeoutMs = 30000 } = {}) => {
+export const request = async (path, { method = 'GET', body, accessToken, signal, responseType = 'json', timeoutMs = 30000, preserveValidationMessage = false } = {}) => {
+  // Fetch adds the multipart boundary for FormData. Setting Content-Type here
+  // would prevent Laravel from reading the uploaded file and form fields.
+  const multipart = typeof FormData !== 'undefined' && body instanceof FormData
   const controller = new AbortController()
   const abort = () => controller.abort()
   if (signal?.aborted) abort()
@@ -14,12 +17,12 @@ export const request = async (path, { method = 'GET', body, accessToken, signal,
       method,
       headers: {
         Accept: responseType === 'blob' ? 'application/pdf, application/json' : 'application/json',
-        ...(body !== undefined && { 'Content-Type': 'application/json' }),
+        ...(body !== undefined && !multipart && { 'Content-Type': 'application/json' }),
         ...(accessToken && { Authorization: `Bearer ${accessToken}` }),
       },
       credentials: 'include',
       signal: controller.signal,
-      ...(body !== undefined && { body: JSON.stringify(body) }),
+      ...(body !== undefined && { body: multipart ? body : JSON.stringify(body) }),
     })
     const payload = response.ok && responseType === 'blob' ? null : await response.json().catch(() => null)
 
@@ -30,7 +33,7 @@ export const request = async (path, { method = 'GET', body, accessToken, signal,
         message = 'Muitas tentativas. Aguarde um minuto e tente novamente.'
       } else if (response.status >= 500) {
         message = 'O servidor está indisponível no momento. Tente novamente mais tarde.'
-      } else if (response.status === 422 && responseType !== 'blob') {
+      } else if (response.status === 422 && responseType !== 'blob' && !preserveValidationMessage) {
         message = 'Confira os campos informados e tente novamente.'
       }
 

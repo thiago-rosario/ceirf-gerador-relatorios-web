@@ -3,7 +3,7 @@ import test from 'node:test'
 import { createReportDraft, updateReportDraft } from '../src/service/report-draft-service.js'
 import {
   ANSWERS, CHECKLIST, FORCES, INFRASTRUCTURE, MAX_FIGURES, MAX_FILE_BYTES, REPORT_SIZES, REPORT_STEPS,
-  draftFieldsPayload, emptyReportDraft, figureNumber, fileMimeType, getStepIssues, hydrateReportDraft,
+  draftFieldsPayload, emptyReportDraft, figureNumber, fileMimeType, getStepIssues, hydrateReportDraft, isAssetConfirmed,
   orderedAssets, textLength, truncateText, validInspectionDate, validateSelectedFile,
 } from '../src/service/report-form-model.js'
 
@@ -40,8 +40,10 @@ test('define nove etapas e enumera todos os itens previstos pelo contrato atual 
   const second = emptyReportDraft()
   first.infrastructure.water_network = 'SIM'
   first.assets.push(asset())
+  first.mediaHistory['1'.repeat(64)] = asset()
   assert.equal(second.infrastructure.water_network, null)
   assert.equal(second.assets.length, 0)
+  assert.deepEqual(second.mediaHistory, {})
 })
 
 test('revisão do rascunho vazio identifica todas as obrigatoriedades sem exigir arquivos opcionais', () => {
@@ -101,7 +103,8 @@ test('conclusão respeita limite de 3.000 caracteres Unicode sem perder os pará
 })
 
 for (const [name, type] of [['mapa.PNG', 'image/png'], ['foto.jpg', 'image/jpeg'], ['foto.JPEG', 'image/jpeg'], ['planta.pdf', 'application/pdf']]) {
-  test(`aceita formato autorizado com até 5 MB e infere MIME quando vazio: ${name}`, () => {
+  test(`aceita formato autorizado com até 25 MiB e infere MIME quando vazio: ${name}`, () => {
+    assert.equal(MAX_FILE_BYTES, 25 * 1024 * 1024)
     assert.equal(validateFile({ name, type, size: MAX_FILE_BYTES }), null)
     assert.equal(validateFile({ name, type: '', size: 1 }), null)
     assert.equal(fileMimeType({ name, type: '' }), type)
@@ -115,7 +118,7 @@ function validateFile(file) {
 
 test('rejeita arquivo vazio, acima do tamanho, extensão não permitida e MIME divergente', () => {
   assert.match(validateFile({ name: 'vazio.png', type: 'image/png', size: 0 }), /vazio/)
-  assert.match(validateFile({ name: 'grande.png', type: 'image/png', size: MAX_FILE_BYTES + 1 }), /5 MB/)
+  assert.match(validateFile({ name: 'grande.png', type: 'image/png', size: MAX_FILE_BYTES + 1 }), /25 MiB/)
   assert.match(validateFile({ name: 'mapa.svg', type: 'image/svg+xml', size: 42 }), /PNG, JPG, JPEG ou PDF/)
   assert.match(validateFile({ name: 'mapa.png', type: 'application/pdf', size: 42 }), /PNG, JPG, JPEG ou PDF/)
 })
@@ -126,7 +129,43 @@ test('arquivo obrigatório selecionado continua pendente enquanto seu envio não
   const issues = getStepIssues(draft)[2]
   assert.equal(issues.length, 1)
   assert.equal(issues[0].field, draft.assets[0].id)
-  assert.match(issues[0].message, /aguardando envio ao servidor/)
+  assert.match(issues[0].message, /aguardando envio e confirmação no servidor/)
+})
+
+for (const uploadStatus of ['hashing', 'uploading', 'processing', 'error']) {
+  test(`referência real em ${uploadStatus} continua impedindo finalização até a confirmação do vínculo`, () => {
+    const draft = filledDraft()
+    draft.assets[0] = { ...draft.assets[0], uploadStatus, uploadError: uploadStatus === 'error' ? 'Falha ao vincular a mídia.' : undefined }
+    assert.equal(isAssetConfirmed(draft.assets[0]), false)
+    const issues = getStepIssues(draft)
+    assert.deepEqual(issues.map((section) => section.length), [0, 0, 1, 0, 0, 0, 0, 0])
+    assert.equal(issues[2][0].field, draft.assets[0].id)
+    if (uploadStatus === 'processing') assert.match(issues[2][0].message, /aguardando confirmação do vínculo/)
+    if (uploadStatus === 'error') assert.match(issues[2][0].message, /Falha ao vincular a mídia/)
+  })
+}
+
+test('referência com sucesso permite finalização depois que o File local é liberado', () => {
+  const draft = filledDraft()
+  draft.assets[0] = { ...draft.assets[0], uploadStatus: 'success' }
+  assert.equal(isAssetConfirmed(draft.assets[0]), true)
+  assert.ok(getStepIssues(draft).every((issues) => issues.length === 0))
+
+  draft.assets[0].file = new File(['imagem'], 'mapa.png', { type: 'image/png' })
+  assert.equal(isAssetConfirmed(draft.assets[0]), false)
+  assert.equal(getStepIssues(draft)[2].length, 1)
+})
+
+test('mídia recuperada após confirmação do PATCH mantém metadados e permite finalizar', () => {
+  const original = filledDraft()
+  const draft = hydrateReportDraft({
+    ...draftFieldsPayload(original),
+    cover: { ...original.cover, municipality: { id: original.cover.municipality_id } },
+  })
+  assert.equal(draft.assets.length, 1)
+  assert.deepEqual(draft.assets[0].reference, original.assets[0].reference)
+  assert.equal(isAssetConfirmed(draft.assets[0]), true)
+  assert.ok(getStepIssues(draft).every((issues) => issues.length === 0))
 })
 
 test('revisão informa arquivo inválido e duplicidade de conteúdo entre diferentes seções', () => {
@@ -187,6 +226,64 @@ test('payload parcial normaliza ausências e preserva anexos remotos sem inventa
   assert.deepEqual(payload.photographic_documentation, { images: [] })
   assert.equal(JSON.stringify(payload).includes('foto.png'), false)
   assert.equal(draft.cover.sei_number, '  ')
+})
+
+for (const kind of ['location_map', 'state_map', 'pre_implementation', 'photograph', 'municipality_map', 'topographic_plan', 'other']) {
+  test(`substituição pendente de ${kind} preserva a referência anterior, os arquivos irmãos e o checklist`, () => {
+    const draft = filledDraft()
+    draft.assets.push(asset('location_map', '2'), asset('pre_implementation', '3'),
+      { ...asset('photograph', '4', 2), caption: 'Vista frontal' }, { ...asset('photograph', '5', 7), caption: 'Vista lateral' },
+      asset('municipality_map', '6'), asset('topographic_plan', '7'),
+      { ...asset('other', '8'), description: 'Certidão' }, { ...asset('other', '9', 2), description: 'Laudo' })
+    const before = draftFieldsPayload(draft)
+    const previous = draft.assets.find((item) => item.kind === kind)
+    const file = new File(['imagem substituta'], 'substituta.png', { type: 'image/png' })
+    const replacement = { ...previous, file, name: file.name, checksum: 'a'.repeat(64), reference: undefined, previous, uploadStatus: 'uploading' }
+    draft.assets = draft.assets.map((item) => item.id === previous.id ? replacement : item)
+
+    assert.deepEqual(draftFieldsPayload(draft), before)
+    assert.equal(isAssetConfirmed(replacement), false)
+    assert.equal(draft.assets.find((item) => item.id === previous.id), replacement)
+    assert.equal(JSON.stringify(draftFieldsPayload(draft)).includes(file.name), false)
+
+    replacement.uploadStatus = 'error'
+    assert.deepEqual(draftFieldsPayload(draft), before)
+  })
+}
+
+test('substituição pendente preserva edições de legenda e descrição ao salvar a referência anterior', () => {
+  const draft = filledDraft()
+  const photograph = { ...asset('photograph', '2', 5), caption: 'Legenda anterior' }
+  const document = { ...asset('other', '3'), description: 'Descrição anterior' }
+  const file = new File(['substituto'], 'substituto.png', { type: 'image/png' })
+  draft.assets.push(
+    { ...photograph, file, reference: undefined, previous: photograph, caption: 'Legenda corrigida', uploadStatus: 'uploading' },
+    { ...document, file, reference: undefined, previous: document, description: 'Descrição corrigida', uploadStatus: 'uploading' },
+  )
+  const payload = draftFieldsPayload(draft)
+  assert.deepEqual(payload.photographic_documentation.images[0], { id: photograph.id, file: photograph.reference, order: 5, caption: 'Legenda corrigida' })
+  assert.deepEqual(payload.attachments.others[0], { id: document.id, file: document.reference, description: 'Descrição corrigida' })
+  assert.deepEqual(payload.attachments.checklist, draft.checklist)
+})
+
+test('referência UUID retornada pelo POST entra no PATCH com File local ainda pendente, sem reutilizar a referência anterior', () => {
+  const draft = filledDraft()
+  const previous = draft.assets[0]
+  const returnedReference = { ...reference('2'), storage_identifier: `${id.slice(0, -1)}2` }
+  const file = new File(['nova imagem'], 'nova-imagem.png', { type: 'image/png' })
+  draft.assets[0] = { ...previous, file, reference: returnedReference, previous, uploadStatus: 'processing' }
+  draft.assets.push(asset('location_map', '3'), { ...asset('other', '4'), description: 'Certidão existente' })
+  const payload = draftFieldsPayload(draft)
+
+  assert.deepEqual(payload.location.municipality_in_state_map.file, returnedReference)
+  assert.equal(payload.location.municipality_in_state_map.id, previous.id)
+  assert.deepEqual(payload.location.location_map.file, draft.assets[1].reference)
+  assert.deepEqual(payload.attachments.others[0].file, draft.assets[2].reference)
+  assert.deepEqual(payload.attachments.checklist, draft.checklist)
+  assert.equal(isAssetConfirmed(draft.assets[0]), false)
+  assert.match(getStepIssues(draft)[2][0].message, /aguardando confirmação do vínculo/)
+  assert.equal(JSON.stringify(payload).includes(file.name), false)
+  assert.equal(draft.assets[0].file, file)
 })
 
 test('modelo e serviço omitem anexos na criação e preservam todos ao atualizar o checklist', async (t) => {
@@ -298,6 +395,67 @@ test('histórico vazio não apaga a ordem das fotos ativas ao recuperar o próxi
   const draft = hydrateReportDraft({ uploaded_images: [], photographic_documentation: { images: [dtoImage('2', 8)] } })
   assert.equal(draft.nextPhotoOrder, 9)
   assert.equal(draft.photoHistory['2'.repeat(64)], 8)
+})
+
+test('recupera a identidade e os metadados de imagem removida sem adicioná-la aos arquivos ativos ou ao PATCH', () => {
+  const removed = { ...dtoImage('a', 8), file: { ...reference('a'), checksum: 'A'.repeat(64) } }
+  const draft = hydrateReportDraft({ uploaded_images: [removed] })
+  const historical = draft.mediaHistory['a'.repeat(64)]
+
+  assert.equal(draft.assets.length, 0)
+  assert.equal(historical.id, removed.id)
+  assert.equal(historical.kind, 'photograph')
+  assert.equal(historical.order, 8)
+  assert.equal(historical.caption, removed.caption)
+  assert.deepEqual(historical.reference, removed.file)
+  assert.equal(historical.name, removed.file.file_name)
+  assert.equal(historical.mimeType, removed.file.mime_type)
+  assert.equal(historical.size, removed.file.size_bytes)
+  assert.equal(historical.file, undefined)
+  assert.equal(isAssetConfirmed(historical), true)
+  assert.equal(draft.photoHistory['a'.repeat(64)], 8)
+  assert.equal(draft.photoHistory['A'.repeat(64)], undefined)
+  assert.equal(draft.nextPhotoOrder, 9)
+  const payload = draftFieldsPayload(draft)
+  assert.equal(payload.mediaHistory, undefined)
+  assert.equal(payload.photoHistory, undefined)
+  assert.equal(JSON.stringify(payload).includes(removed.file.file_name), false)
+})
+
+test('histórico usa o tipo e a legenda atuais quando a imagem também está em uma seção ativa', () => {
+  const active = { ...dtoImage('2', 3), caption: 'Mapa atualizado' }
+  const draft = hydrateReportDraft({
+    location: { municipality_in_state_map: active },
+    uploaded_images: [{ ...active, caption: 'Legenda original' }],
+  })
+  const historical = draft.mediaHistory[active.file.checksum]
+
+  assert.equal(historical.kind, 'state_map')
+  assert.equal(historical.id, active.id)
+  assert.equal(historical.caption, active.caption)
+  assert.equal(historical.order, active.order)
+  assert.deepEqual(historical.reference, active.file)
+  assert.equal(historical.file, undefined)
+})
+
+test('hidrata referências de todos os anexos ativos no histórico sem guardar arquivos locais', () => {
+  const map = { ...dtoImage('5'), description: 'Mapa do município' }
+  const plan = { ...dtoImage('6'), description: 'Levantamento topográfico' }
+  const other = { ...dtoImage('7'), description: 'Certidão' }
+  const draft = hydrateReportDraft({
+    attachments: { municipality_location_map: map, topographic_plan: plan, others: [other] },
+  })
+
+  assert.deepEqual(Object.values(draft.mediaHistory).map(({ kind }) => kind), ['municipality_map', 'topographic_plan', 'other'])
+  for (const item of [map, plan, other]) {
+    const historical = draft.mediaHistory[item.file.checksum]
+    assert.equal(historical.id, item.id)
+    assert.equal(historical.description, item.description)
+    assert.deepEqual(historical.reference, item.file)
+    assert.equal(historical.file, undefined)
+    assert.equal(isAssetConfirmed(historical), true)
+  }
+  assert.equal(draftFieldsPayload(draft).mediaHistory, undefined)
 })
 
 test('numeração segue a composição do PDF, mantém ordem de upload e não muda o array de estado', () => {

@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from 'react'
 import { MunicipalityPicker } from '@/components/reports/MunicipalityPicker'
 import { Button } from '@/components/ui/button'
 import { FORCES, REPORT_SIZES, truncateText } from '@/service/report-form-model'
@@ -6,9 +7,9 @@ import type { ReportDraft, StepIssue } from '@/types/report-draft'
 import { FormField, reportControlClass } from './FormField'
 
 export function CoverStep({ draft, onChange, issues, municipalities, isLoading, error, onRetry }: {
-  draft: ReportDraft; onChange: (draft: ReportDraft) => void; issues: StepIssue[]; municipalities: Municipality[]; isLoading: boolean; error: Error | null; onRetry: () => void
+  draft: ReportDraft; onChange: Dispatch<SetStateAction<ReportDraft>>; issues: StepIssue[]; municipalities: Municipality[]; isLoading: boolean; error: Error | null; onRetry: () => void
 }) {
-  const update = (field: string, value: string | number | null) => onChange({ ...draft, cover: { ...draft.cover, [field]: value } })
+  const update = (field: string, value: string | number | null) => onChange((current) => ({ ...current, cover: { ...current.cover, [field]: value } }))
   const issue = (field: string) => issues.find((item) => item.field === field)?.message
   return <div className="grid gap-x-10 gap-y-5 md:grid-cols-2 xl:gap-x-12">
     <FormField label="Município" htmlFor="report-municipality" required error={issue('municipality_id')}>

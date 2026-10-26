@@ -43,6 +43,25 @@ test('envia o token Bearer nas consultas autenticadas sem criar corpo', async (t
   assert.equal(headers.get('Accept'), 'application/json');
 });
 
+test('envia FormData sem serializar ou definir Content-Type para preservar o boundary multipart', async (t) => {
+  const body = new FormData();
+  const file = new File(['imagem'], 'mapa.png', { type: 'image/png' });
+  body.append('file', file);
+  body.append('kind', 'image');
+  body.append('checksum', 'a'.repeat(64));
+  const fetchMock = mockJsonResponse(t, { status: 'success', data: { id: 'media-id' } });
+
+  assert.deepEqual(await request('/reports/report-id/media', { method: 'POST', accessToken: 'token', body }), { id: 'media-id' });
+
+  const options = fetchMock.mock.calls[0].arguments[1];
+  assert.equal(options.body, body);
+  assert.equal(options.body.get('file'), file);
+  const headers = new Headers(options.headers);
+  assert.equal(headers.get('Content-Type'), null);
+  assert.equal(headers.get('Accept'), 'application/json');
+  assert.equal(headers.get('Authorization'), 'Bearer token');
+});
+
 test('aceita sucesso sem dados de retorno no logout', async (t) => {
   mockJsonResponse(t, { status: 'success', data: null });
 

@@ -29,18 +29,19 @@ export default function CreateReport({ accessToken, coordination, search, onBack
   useReportAccessError(municipalities.error, onSessionInvalid, refreshUser)
   useReportAccessError(form.loadError, onSessionInvalid, refreshUser)
   useReportAccessError(form.saveError, onSessionInvalid, refreshUser)
+  useReportAccessError(form.mediaError, onSessionInvalid, refreshUser)
   const [visited, setVisited] = useState<number[]>([])
   const [exiting, setExiting] = useState(false)
   const heading = useRef<HTMLHeadingElement>(null)
   const issues = getStepIssues(form.draft)
   const { draft, updateDraft, step } = form
   const stepIssues = visited.includes(step) ? issues[step] ?? [] : []
-  const mediaProps = { draft, onChange: updateDraft }
+  const mediaProps = { draft, onChange: updateDraft, onSelectMedia: form.selectMedia, onRemoveMedia: form.removeMedia, onRetryMedia: form.retryMedia }
   const selectStep = (next: number) => { setVisited((values) => [...new Set([...values, step])]); form.setStep(next) }
   useEffect(() => { heading.current?.focus({ preventScroll: true }) }, [step])
 
   const saveAndExit = async () => {
-    if (exiting) return
+    if (exiting || form.localFiles > 0) return
     setExiting(true)
     try { await form.save(); onBack() } catch { /* The form stays open and shows the actual API error. */ }
     finally { setExiting(false) }
@@ -56,10 +57,10 @@ export default function CreateReport({ accessToken, coordination, search, onBack
     <CoverStep key="cover" {...mediaProps} issues={stepIssues} municipalities={municipalities.data ?? []} isLoading={municipalities.isLoading} error={municipalities.error} onRetry={municipalities.reload} />,
     <GeneralInformationStep key="general" {...mediaProps} issues={stepIssues} />,
     <LocationStep key="location" {...mediaProps} />,
-    <QuestionForm key="infrastructure" items={INFRASTRUCTURE} values={draft.infrastructure} prefix="infrastructure" showPending={visited.includes(3)} onChange={(key, answer) => updateDraft({ ...draft, infrastructure: { ...draft.infrastructure, [key]: answer } })} />,
+    <QuestionForm key="infrastructure" items={INFRASTRUCTURE} values={draft.infrastructure} prefix="infrastructure" showPending={visited.includes(3)} onChange={(key, answer) => updateDraft((current) => ({ ...current, infrastructure: { ...current.infrastructure, [key]: answer } }))} />,
     <PreImplementationStep key="pre" {...mediaProps} />,
     <PhotographsStep key="photos" {...mediaProps} />,
-    <div key="attachments" className="space-y-9"><section aria-labelledby="land-checklist"><h3 id="land-checklist" className="mb-4 text-xl font-bold text-[#073574]">Checklist do Terreno</h3><QuestionForm items={CHECKLIST} values={draft.checklist} prefix="checklist" showPending={visited.includes(6)} onChange={(key, answer) => updateDraft({ ...draft, checklist: { ...draft.checklist, [key]: answer } })} /></section><AttachmentDocuments {...mediaProps} /></div>,
+    <div key="attachments" className="space-y-9"><section aria-labelledby="land-checklist"><h3 id="land-checklist" className="mb-4 text-xl font-bold text-[#073574]">Checklist do Terreno</h3><QuestionForm items={CHECKLIST} values={draft.checklist} prefix="checklist" showPending={visited.includes(6)} onChange={(key, answer) => updateDraft((current) => ({ ...current, checklist: { ...current.checklist, [key]: answer } }))} /></section><AttachmentDocuments {...mediaProps} /></div>,
     <ConclusionStep key="conclusion" {...mediaProps} error={stepIssues[0]?.message} />,
     <ReviewStep key="review" draft={draft} issues={issues} municipalities={municipalities.data ?? []} onSelect={selectStep} />,
   ]
@@ -77,7 +78,7 @@ export default function CreateReport({ accessToken, coordination, search, onBack
             {form.saveError && <div role="alert" className="mt-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p>{form.saveError.message}</p>{errorMessages.length > 0 && <ul className="mt-2 list-disc pl-5">{errorMessages.map((message, index) => <li key={index}>{message}</li>)}</ul>}<Button variant="outline" className="mt-3 h-10 bg-white" disabled={form.saving} onClick={() => { form.save().catch(() => {}) }}>Tentar salvar novamente</Button></div>}
             <div className="mt-10 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-5">
               <div>{step > 0 && <Button variant="outline" className="h-12 px-5 text-[#073574]" onClick={() => selectStep(step - 1)}><ArrowLeftIcon aria-hidden="true" className="size-5" />Anterior</Button>}</div>
-              <div className="flex w-full flex-wrap gap-3 sm:w-auto"><Button variant="secondary" className="h-12 flex-1 bg-[#e8e8e8] px-5 font-bold text-[#073574] sm:min-w-40" disabled={exiting || form.generating} onClick={saveAndExit}>{exiting ? <LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" /> : <SaveIcon aria-hidden="true" className="size-4" />}{exiting ? 'Salvando…' : 'Salvar e Sair'}</Button>
+              <div className="flex w-full flex-wrap gap-3 sm:w-auto"><Button variant="secondary" className="h-12 flex-1 bg-[#e8e8e8] px-5 font-bold text-[#073574] sm:min-w-40" disabled={exiting || form.generating || form.localFiles > 0} onClick={saveAndExit}>{exiting ? <LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" /> : <SaveIcon aria-hidden="true" className="size-4" />}{exiting ? 'Salvando…' : 'Salvar e Sair'}</Button>
                 {step < 8 ? <Button className="h-12 flex-1 bg-[#4058f4] px-6 font-bold text-white hover:bg-[#3046d6] sm:min-w-40" onClick={() => selectStep(step + 1)}>Próximo<ArrowRightIcon aria-hidden="true" className="size-5" /></Button> : <Button className="h-12 flex-1 bg-[#4058f4] px-6 font-bold text-white sm:min-w-40" disabled={issues.some((section) => section.length) || form.generating || exiting} onClick={finish}>{form.generating ? <LoaderCircleIcon aria-hidden="true" className="size-4 animate-spin" /> : <CheckCircle2Icon aria-hidden="true" className="size-4" />}{form.generating ? 'Finalizando…' : 'Finalizar relatório'}</Button>}
               </div>
             </div>
@@ -87,7 +88,7 @@ export default function CreateReport({ accessToken, coordination, search, onBack
             <p role="status">{form.saving ? 'Salvando campos no servidor…' : form.saveError ? 'Salvamento não confirmado. Seus valores continuam nesta sessão.' : form.dirty ? 'Alterações aguardando salvamento automático.' : form.savedAt ? `Campos salvos no servidor às ${form.savedAt}.` : form.id ? 'Rascunho recuperado do servidor.' : 'Novo rascunho · salvamento automático ao preencher.'}</p>
             <p>{draft.assets.length}/20 figuras · {form.localFiles} arquivo(s) com envio pendente</p>
           </div>
-          <p className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-900">O salvamento confirma os campos de texto e as respostas. Arquivos selecionados permanecem apenas nesta sessão do navegador enquanto a API de upload não estiver disponível. Recarregar ou fechar a página descarta esses arquivos.</p>
+          {form.localFiles > 0 && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-relaxed text-amber-900">Há arquivos com envio ou vínculo pendente. Aguarde a confirmação ou tente novamente nos arquivos com erro antes de sair. A finalização exige a confirmação de todos os arquivos selecionados.</p>}
         </div>
       </div>}
   </ReportsShell>

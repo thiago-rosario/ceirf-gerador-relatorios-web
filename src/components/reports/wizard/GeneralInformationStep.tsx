@@ -1,9 +1,10 @@
+import type { Dispatch, SetStateAction } from 'react'
 import { todayInBahia, truncateText, validInspectionDate } from '@/service/report-form-model'
 import type { ReportDraft, StepIssue } from '@/types/report-draft'
 import { FormField, reportControlClass } from './FormField'
 
-export function GeneralInformationStep({ draft, onChange, issues }: { draft: ReportDraft; onChange: (draft: ReportDraft) => void; issues: StepIssue[] }) {
-  const update = (field: string, value: string) => onChange({ ...draft, general_information: { ...draft.general_information, [field]: value } })
+export function GeneralInformationStep({ draft, onChange, issues }: { draft: ReportDraft; onChange: Dispatch<SetStateAction<ReportDraft>>; issues: StepIssue[] }) {
+  const update = (field: string, value: string) => onChange((current) => ({ ...current, general_information: { ...current.general_information, [field]: value } }))
   const date = draft.general_information.inspection_date
   const dateError = issues.find((item) => item.field === 'inspection_date')?.message || (date && !validInspectionDate(date) ? 'A data deve ser válida e não pode ser futura.' : '')
   return <div className="space-y-7">

@@ -38,7 +38,8 @@ export const ASSET_CAPTIONS = {
   pre_implementation: 'Sugestão de pré-implantação COTEC', municipality_map: 'Mapa de Localização do Município', topographic_plan: 'Planta Topográfica',
 }
 export const MAX_FIGURES = 20
-export const MAX_FILE_BYTES = 5 * 1024 * 1024
+export const MAX_FILE_BYTES = 25 * 1024 * 1024
+export const isAssetConfirmed = (asset) => Boolean(asset.reference && !asset.file && (!asset.uploadStatus || asset.uploadStatus === 'success'))
 export const textLength = (value) => Array.from(value).length
 export const truncateText = (value, limit) => Array.from(value).slice(0, limit).join('')
 export const todayInBahia = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Bahia' }).format(new Date())
@@ -53,7 +54,7 @@ export const emptyReportDraft = () => ({
   cover: { municipality_id: null, force: '', size: '', typology: '', sei_number: '' },
   general_information: { inspection_date: '', collaborators: '' },
   infrastructure: Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, null])),
-  checklist: Object.fromEntries(CHECKLIST.map(([key]) => [key, null])), conclusion: '', assets: [], photoHistory: {}, nextPhotoOrder: 1,
+  checklist: Object.fromEntries(CHECKLIST.map(([key]) => [key, null])), conclusion: '', assets: [], mediaHistory: {}, photoHistory: {}, nextPhotoOrder: 1,
 })
 
 /** @param {import('../types/report-draft').ReportDraft} draft
@@ -80,16 +81,16 @@ export const getStepIssues = (draft) => {
   for (const asset of draft.assets) {
     const step = ({ location_map: 2, state_map: 2, pre_implementation: 4, photograph: 5, municipality_map: 6, topographic_plan: 6, other: 6 })[asset.kind]
     const checksum = asset.checksum.toLowerCase()
-    if (checksums.has(checksum)) add(step, asset.id, `${asset.name}: este arquivo está duplicado no relatório.`)
-    checksums.add(checksum)
+    if (checksum && checksums.has(checksum)) add(step, asset.id, `${asset.name}: este arquivo está duplicado no relatório.`)
+    if (checksum) checksums.add(checksum)
     if (asset.kind === 'photograph' && !asset.caption.trim()) add(step, asset.id, `${asset.name}: informe a legenda da fotografia.`)
     if (asset.kind === 'other' && !asset.description.trim()) add(step, asset.id, `${asset.name}: informe a descrição.`)
     if (textLength(asset.caption) > 500 || textLength(asset.description) > 500) add(step, asset.id, `${asset.name}: use até 500 caracteres.`)
     if (asset.file) {
       const fileIssue = validateSelectedFile(asset.file)
       if (fileIssue) add(step, asset.id, `${asset.name}: ${fileIssue}`)
-      add(step, asset.id, `${asset.name}: aguardando envio ao servidor (API de upload indisponível).`)
     }
+    if (!isAssetConfirmed(asset)) add(step, asset.id, `${asset.name}: ${asset.uploadStatus === 'error' ? asset.uploadError || 'envio não confirmado. Tente novamente.' : asset.uploadStatus === 'processing' ? 'aguardando confirmação do vínculo com o relatório.' : 'aguardando envio e confirmação no servidor.'}`)
   }
   if (draft.assets.length > MAX_FIGURES) add(5, 'assets', 'O relatório admite no máximo 20 figuras.')
   if (!draft.conclusion.trim()) add(7, 'conclusion', 'Preencha a conclusão técnica.')
@@ -100,7 +101,9 @@ export const getStepIssues = (draft) => {
 /** Persist scalar fields and existing server references. Local files never become fabricated references. */
 export const draftFieldsPayload = (draft) => {
   const attachment = (asset) => asset ? { id: asset.id, file: asset.reference, description: asset.description } : null
-  const remote = draft.assets.filter((asset) => asset.reference && !asset.file)
+  // While uploading a replacement, keep the previously linked reference in every section PATCH.
+  // Once POST returns, include its real reference even before PATCH has been confirmed.
+  const remote = draft.assets.map((asset) => asset.reference ? asset : asset.previous ? { ...asset.previous, caption: asset.caption, description: asset.description } : null).filter(Boolean)
   const image = (asset) => asset ? { id: asset.id, file: asset.reference, order: asset.order, caption: asset.caption } : null
   return {
     cover: { ...draft.cover, force: draft.cover.force || null, size: draft.cover.size || null, sei_number: draft.cover.sei_number.trim() || null },
@@ -130,18 +133,26 @@ export const hydrateReportDraft = (report) => {
   for (const [key] of INFRASTRUCTURE) draft.infrastructure[key] = ANSWERS.includes(report.infrastructure?.[key]) ? report.infrastructure[key] : null
   for (const [key] of CHECKLIST) draft.checklist[key] = ANSWERS.includes(report.attachments?.checklist?.[key]) ? report.attachments.checklist[key] : null
   draft.conclusion = text(report.conclusion?.content)
+  const assetFrom = (kind, item) => item?.file ? ({ id: item.id, kind, name: item.file.file_name, mimeType: item.file.mime_type, size: item.file.size_bytes, checksum: item.file.checksum,
+    order: item.order ?? 1, caption: text(item.caption), description: text(item.description), reference: item.file }) : null
   const add = (kind, item) => {
-    if (!item?.file) return
-    draft.assets.push({ id: item.id, kind, name: item.file.file_name, mimeType: item.file.mime_type, size: item.file.size_bytes, checksum: item.file.checksum,
-      order: item.order ?? 1, caption: text(item.caption), description: text(item.description), reference: item.file })
+    const asset = assetFrom(kind, item)
+    if (asset) draft.assets.push(asset)
   }
   add('location_map', report.location?.location_map); add('state_map', report.location?.municipality_in_state_map)
   add('pre_implementation', report.pre_implementation?.image)
   for (const photo of report.photographic_documentation?.images ?? []) add('photograph', photo)
   add('municipality_map', report.attachments?.municipality_location_map); add('topographic_plan', report.attachments?.topographic_plan)
   for (const item of report.attachments?.others ?? []) add('other', item)
+  for (const asset of draft.assets) {
+    if (asset.checksum) draft.mediaHistory[asset.checksum.toLowerCase()] = asset
+  }
+  for (const image of report.uploaded_images ?? []) {
+    const asset = draft.assets.find((item) => item.id === image.id) ?? assetFrom('photograph', image)
+    if (asset?.checksum) draft.mediaHistory[asset.checksum.toLowerCase()] ??= asset
+  }
   for (const photo of [...report.uploaded_images ?? [], ...report.photographic_documentation?.images ?? []]) {
-    if (photo.file?.checksum && Number.isSafeInteger(photo.order) && photo.order > 0) draft.photoHistory[photo.file.checksum] = photo.order
+    if (photo.file?.checksum && Number.isSafeInteger(photo.order) && photo.order > 0) draft.photoHistory[photo.file.checksum.toLowerCase()] = photo.order
   }
   draft.nextPhotoOrder = Math.max(0, ...Object.values(draft.photoHistory)) + 1
   return draft
@@ -155,7 +166,7 @@ export const figureNumber = (assets, id) => orderedAssets(assets).findIndex((ass
 
 export const validateSelectedFile = (file) => {
   if (!file.size) return 'O arquivo está vazio.'
-  if (file.size > MAX_FILE_BYTES) return 'O arquivo deve ter até 5 MB.'
+  if (file.size > MAX_FILE_BYTES) return 'O arquivo deve ter até 25 MiB.'
   const extension = file.name.split('.').pop()?.toLowerCase()
   const types = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', pdf: 'application/pdf' }
   if (!types[extension] || (file.type && file.type !== types[extension])) return 'Selecione um arquivo PNG, JPG, JPEG ou PDF.'
