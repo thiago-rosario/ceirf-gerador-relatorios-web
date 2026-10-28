@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReportDraft, generateReportDraft, loadReportDraft, updateReportDraft } from '../src/service/report-draft-service.js'
+import { createCollaborator, createInstitutionalRepresentative, draftFieldsPayload, emptyReportDraft, hydrateReportDraft } from '../src/service/report-form-model.js'
 
 const id = '550e8400-e29b-41d4-a716-446655440000'
 const otherId = '660e8400-e29b-41d4-a716-446655440000'
@@ -93,6 +94,29 @@ test('recupera rascunho real sem exigir capa ou conclusão preenchidas', async (
   const fetchMock = mockData(t, partial)
   assert.deepEqual(await loadReportDraft('token', id.toUpperCase()), partial)
   assert.equal(fetchMock.mock.calls[0].arguments[0], `/api/reports/${id.toUpperCase()}`)
+})
+
+test('cria, recupera e atualiza os participantes no contrato da API sem IDs locais', async (t) => {
+  const draft = emptyReportDraft()
+  draft.general_information.collaborators = [createCollaborator('Ana Silva'), createCollaborator('João Santos')]
+  draft.general_information.institutional_representatives = [createInstitutionalRepresentative('Maria Santos', 'Secretária'), createInstitutionalRepresentative('José Oliveira', 'Engenheiro')]
+  const information = { inspection_date: null, collaborators: 'Ana Silva\nJoão Santos', institutional_representatives: [
+    { name: 'Maria Santos', position: 'Secretária' }, { name: 'José Oliveira', position: 'Engenheiro' },
+  ] }
+  const response = { ...partial, general_information: information }
+  const fetchMock = mockData(t, response)
+  const result = await createReportDraft('token', 2, draftFieldsPayload(draft))
+  assert.deepEqual(JSON.parse(fetchMock.mock.calls[0].arguments[1].body).general_information, information)
+  const restored = hydrateReportDraft(await loadReportDraft('token', result.id))
+  assert.deepEqual(draftFieldsPayload(restored).general_information, information)
+  assert.deepEqual(restored.general_information.collaborators.map(({ name }) => name), ['Ana Silva', 'João Santos'])
+  const surviving = restored.general_information.institutional_representatives[1]
+  restored.general_information.institutional_representatives = [{ ...surviving, position: 'Coordenador' }]
+  await updateReportDraft('token', result.id, draftFieldsPayload(restored))
+  assert.deepEqual(JSON.parse(fetchMock.mock.calls[2].arguments[1].body).general_information.institutional_representatives, [{ name: 'José Oliveira', position: 'Coordenador' }])
+  restored.general_information.institutional_representatives = [createInstitutionalRepresentative()]
+  await updateReportDraft('token', result.id, draftFieldsPayload(restored))
+  assert.deepEqual(JSON.parse(fetchMock.mock.calls[3].arguments[1].body).general_information.institutional_representatives, [])
 })
 
 test('confirma geração pela resposta técnica do backend e preserva os dados do PDF', async (t) => {
