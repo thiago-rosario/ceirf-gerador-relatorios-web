@@ -3,8 +3,9 @@ import test from 'node:test'
 import { createReportDraft, updateReportDraft } from '../src/service/report-draft-service.js'
 import {
   ANSWERS, CHECKLIST, FORCES, INFRASTRUCTURE, MAX_FIGURES, MAX_FILE_BYTES, REPORT_SIZES, REPORT_STEPS,
-  draftFieldsPayload, emptyReportDraft, figureNumber, fileMimeType, getStepIssues, hydrateReportDraft, isAssetConfirmed,
-  orderedAssets, textLength, truncateText, validInspectionDate, validateSelectedFile,
+  createCollaborator, createInstitutionalRepresentative, draftFieldsPayload, emptyReportDraft, figureNumber, fileMimeType,
+  getGeneralInformationSaveIssues, getStepIssues, hydrateReportDraft, isAssetConfirmed, orderedAssets,
+  serializeCollaborators, textLength, truncateText, validInspectionDate, validateSelectedFile,
 } from '../src/service/report-form-model.js'
 
 const id = '550e8400-e29b-41d4-a716-446655440000'
@@ -19,7 +20,7 @@ const asset = (kind = 'state_map', suffix = '1', order = 1) => ({
 const filledDraft = () => {
   const draft = emptyReportDraft()
   draft.cover = { municipality_id: 7, force: 'PC-PM', size: '1B-1B', typology: 'CIPM e DT', sei_number: '123.456/2026' }
-  draft.general_information = { inspection_date: '2024-02-29', collaborators: 'Equipe da vistoria' }
+  draft.general_information = { ...draft.general_information, inspection_date: '2024-02-29', collaborators: [createCollaborator('Equipe da vistoria')] }
   draft.infrastructure = Object.fromEntries(INFRASTRUCTURE.map(([key], index) => [key, ANSWERS[index % 3]]))
   draft.checklist = Object.fromEntries(CHECKLIST.map(([key], index) => [key, ANSWERS[index % 3]]))
   draft.conclusion = 'Conclusão da avaliação técnica.\nSegundo parágrafo.'
@@ -44,6 +45,10 @@ test('define nove etapas e enumera todos os itens previstos pelo contrato atual 
   assert.equal(second.infrastructure.water_network, null)
   assert.equal(second.assets.length, 0)
   assert.deepEqual(second.mediaHistory, {})
+  assert.equal(first.general_information.collaborators.length, 1)
+  assert.equal(first.general_information.institutional_representatives.length, 1)
+  assert.notEqual(first.general_information.collaborators[0].id, second.general_information.collaborators[0].id)
+  assert.notEqual(first.general_information.institutional_representatives[0].id, second.general_information.institutional_representatives[0].id)
 })
 
 test('revisão do rascunho vazio identifica todas as obrigatoriedades sem exigir arquivos opcionais', () => {
@@ -80,14 +85,89 @@ test('limites de caracteres contam caracteres Unicode como o mb_strlen do backen
   const draft = filledDraft()
   draft.cover.typology = '😀'.repeat(100)
   draft.cover.sei_number = 'ç'.repeat(80)
-  draft.general_information.collaborators = '😀'.repeat(1000)
+  draft.general_information.collaborators[0].name = '😀'.repeat(1000)
   assert.equal(getStepIssues(draft)[0].length, 0)
   assert.equal(getStepIssues(draft)[1].length, 0)
   draft.cover.typology += 'A'
   draft.cover.sei_number += 'B'
-  draft.general_information.collaborators += 'C'
+  draft.general_information.collaborators[0].name += 'C'
   assert.deepEqual(getStepIssues(draft)[0].map(({ field }) => field), ['typology', 'sei_number'])
   assert.equal(getStepIssues(draft)[1][0].field, 'collaborators')
+})
+
+test('colaboradores mantêm texto legado e somente quebras de linha separam os campos recuperados', () => {
+  const legacy = 'Ana Silva, João Santos e equipe COTEC'
+  const draft = hydrateReportDraft({ general_information: { collaborators: legacy, inspection_date: null } })
+  assert.deepEqual(draft.general_information.collaborators.map(({ name }) => name), [legacy])
+  assert.equal(draftFieldsPayload(draft).general_information.collaborators, legacy)
+
+  const multiline = hydrateReportDraft({ general_information: { collaborators: 'Ana Silva\r\nJoão Santos\nEquipe COTEC' } })
+  assert.deepEqual(multiline.general_information.collaborators.map(({ name }) => name), ['Ana Silva', 'João Santos', 'Equipe COTEC'])
+  assert.equal(draftFieldsPayload(multiline).general_information.collaborators, 'Ana Silva\nJoão Santos\nEquipe COTEC')
+})
+
+test('payload conserva nomes e cargos estruturados sem enviar identificadores locais ou linhas vazias', () => {
+  const draft = emptyReportDraft()
+  const collaborators = [createCollaborator('Ana'), createCollaborator(), createCollaborator('João')]
+  const representatives = [createInstitutionalRepresentative('Maria', 'Secretária'), createInstitutionalRepresentative(), createInstitutionalRepresentative('José', 'Coordenador')]
+  draft.general_information.collaborators = collaborators
+  draft.general_information.institutional_representatives = representatives
+  const before = structuredClone(draft.general_information)
+  const payload = draftFieldsPayload(draft)
+
+  assert.deepEqual(payload.general_information, {
+    inspection_date: null, collaborators: 'Ana\nJoão',
+    institutional_representatives: [{ name: 'Maria', position: 'Secretária' }, { name: 'José', position: 'Coordenador' }],
+  })
+  assert.equal(serializeCollaborators(collaborators), 'Ana\nJoão')
+  assert.deepEqual(draft.general_information, before)
+  for (const row of [...collaborators, ...representatives]) assert.equal(JSON.stringify(payload).includes(row.id), false)
+
+  const restored = hydrateReportDraft(payload)
+  assert.deepEqual(draftFieldsPayload(restored).general_information, payload.general_information)
+  assert.equal(new Set([...restored.general_information.collaborators, ...restored.general_information.institutional_representatives].map(({ id: rowId }) => rowId)).size, 4)
+})
+
+test('limite de colaboradores inclui os separadores entre registros e ignora campos sem nome', () => {
+  const draft = emptyReportDraft()
+  draft.general_information.collaborators = [createCollaborator('á'.repeat(499)), createCollaborator('😀'.repeat(500)), createCollaborator('  ')]
+  assert.equal(textLength(serializeCollaborators(draft.general_information.collaborators)), 1000)
+  assert.deepEqual(getGeneralInformationSaveIssues(draft), [])
+  draft.general_information.collaborators[0].name += 'A'
+  assert.deepEqual(getGeneralInformationSaveIssues(draft).map(({ field }) => field), ['collaborators'])
+})
+
+test('representantes são opcionais no rascunho e na finalização, mas cada registro iniciado exige nome e cargo', () => {
+  const draft = filledDraft()
+  assert.deepEqual(getGeneralInformationSaveIssues(emptyReportDraft()), [])
+  assert.deepEqual(getStepIssues(draft)[1], [])
+  const first = createInstitutionalRepresentative('Maria', '')
+  const second = createInstitutionalRepresentative('', 'Coordenador')
+  const blank = createInstitutionalRepresentative(' \n ', '\u00a0')
+  draft.general_information.institutional_representatives = [first, second, blank]
+  const fields = [`institutional_representatives.${first.id}.position`, `institutional_representatives.${second.id}.name`]
+  assert.deepEqual(getGeneralInformationSaveIssues(draft).map(({ field }) => field), fields)
+  assert.deepEqual(getStepIssues(draft)[1].map(({ field }) => field), fields)
+
+  first.position = 'Secretária'
+  second.name = 'José'
+  assert.deepEqual(getGeneralInformationSaveIssues(draft), [])
+  assert.deepEqual(getStepIssues(draft)[1], [])
+  assert.equal(draftFieldsPayload(draft).general_information.institutional_representatives.length, 2)
+})
+
+test('nome e cargo de representante respeitam 255 caracteres Unicode e erros acompanham sua identidade', () => {
+  const draft = filledDraft()
+  const first = createInstitutionalRepresentative('á'.repeat(255), '😀'.repeat(255))
+  const second = createInstitutionalRepresentative('José', 'Coordenador')
+  draft.general_information.institutional_representatives = [first, second]
+  assert.deepEqual(getGeneralInformationSaveIssues(draft), [])
+  first.name += 'A'
+  first.position += 'B'
+  const expected = [`institutional_representatives.${first.id}.name`, `institutional_representatives.${first.id}.position`]
+  assert.deepEqual(getGeneralInformationSaveIssues(draft).map(({ field }) => field), expected)
+  draft.general_information.institutional_representatives.reverse()
+  assert.deepEqual(getGeneralInformationSaveIssues(draft).map(({ field }) => field), expected)
 })
 
 test('conclusão respeita limite de 3.000 caracteres Unicode sem perder os parágrafos no payload', () => {
@@ -216,7 +296,7 @@ test('payload parcial normaliza ausências e preserva anexos remotos sem inventa
   draft.cover.sei_number = '  '
   const payload = draftFieldsPayload(draft)
   assert.deepEqual(payload.cover, { municipality_id: null, force: null, size: null, typology: '', sei_number: null })
-  assert.deepEqual(payload.general_information, { inspection_date: null, collaborators: '' })
+  assert.deepEqual(payload.general_information, { inspection_date: null, collaborators: '', institutional_representatives: [] })
   assert.equal(payload.attachments.municipality_location_map.file, draft.assets[0].reference)
   assert.equal(payload.attachments.topographic_plan.file, draft.assets[1].reference)
   assert.equal(payload.attachments.others[0].description, 'Certidão')
@@ -372,7 +452,10 @@ test('hidrata os DTOs snake_case e todos os tipos de mídia mantendo metadados p
 })
 
 test('hidratação aceita seções nulas e normaliza enum/texto inválido sem enviar campos desconhecidos', () => {
-  assert.deepEqual(hydrateReportDraft({ cover: null, general_information: null, infrastructure: null, attachments: null, conclusion: null }), emptyReportDraft())
+  const empty = hydrateReportDraft({ cover: null, general_information: null, infrastructure: null, attachments: null, conclusion: null })
+  assert.deepEqual(draftFieldsPayload(empty), draftFieldsPayload(emptyReportDraft()))
+  assert.deepEqual(empty.general_information.collaborators.map(({ name }) => name), [''])
+  assert.deepEqual(empty.general_information.institutional_representatives.map(({ name, position }) => ({ name, position })), [{ name: '', position: '' }])
   const draft = hydrateReportDraft({
     cover: { municipality: { id: '7' }, force: 'PMBA', size: 'GRANDE', typology: 42, sei_number: null },
     general_information: { inspection_date: 42, collaborators: null },

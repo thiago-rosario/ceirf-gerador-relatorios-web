@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createReportDraft, generateReportDraft, loadReportDraft, updateReportDraft } from '@/service/report-draft-service'
-import { draftFieldsPayload, emptyReportDraft, getStepIssues, hydrateReportDraft, isAssetConfirmed, validInspectionDate } from '@/service/report-form-model'
+import { draftFieldsPayload, emptyReportDraft, getGeneralInformationSaveIssues, getStepIssues, hydrateReportDraft, isAssetConfirmed, validInspectionDate } from '@/service/report-form-model'
 import { createReportMediaController } from '@/controller/report-media-controller'
 import type { ReportDraft } from '@/types/report-draft'
 
@@ -123,6 +123,14 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     const reportId = snapshot.id
     if (snapshot.draft.general_information.inspection_date && !validInspectionDate(snapshot.draft.general_information.inspection_date)) {
       const error = new Error('Corrija a data da vistoria antes de salvar. Os demais valores continuam disponíveis nesta sessão.')
+      entry.current.error = error
+      entry.current.notify?.()
+      throw error
+    }
+    const participantIssues = getGeneralInformationSaveIssues(snapshot.draft)
+    if (participantIssues.length) {
+      const error: ApiError = new Error('Corrija os participantes na etapa Informações Gerais antes de salvar. Seus valores continuam disponíveis nesta sessão.')
+      error.errors = Object.fromEntries(participantIssues.map((issue) => [issue.field, [issue.message]]))
       entry.current.error = error
       entry.current.notify?.()
       throw error

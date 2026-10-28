@@ -19,9 +19,11 @@ export type ReportAsset = {
   // Keep the linked file until a replacement has been uploaded and confirmed by PATCH.
   previous?: ReportAsset
 }
+export type ReportCollaborator = { id: string; name: string }
+export type InstitutionalRepresentative = { id: string; name: string; position: string }
 export type ReportDraft = {
   cover: { municipality_id: number | null; force: string; size: string; typology: string; sei_number: string }
-  general_information: { inspection_date: string; collaborators: string }
+  general_information: { inspection_date: string; collaborators: ReportCollaborator[]; institutional_representatives: InstitutionalRepresentative[] }
   infrastructure: Record<string, Answer>
   checklist: Record<string, Answer>
   conclusion: string

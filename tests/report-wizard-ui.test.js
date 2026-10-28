@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
-import { CHECKLIST, INFRASTRUCTURE, emptyReportDraft, getStepIssues } from '../src/service/report-form-model.js';
+import { CHECKLIST, INFRASTRUCTURE, createCollaborator, createInstitutionalRepresentative, emptyReportDraft, getStepIssues } from '../src/service/report-form-model.js';
 
 const titles = ['Capa', 'Informações Gerais', 'Localização do Terreno', 'Infraestrutura Existente', 'Sugestão Pré-Implantação',
   'Documentação Fotográfica', 'Anexos', 'Conclusão', 'Revisão Final'];
@@ -101,7 +101,6 @@ test('edições de campos usam o rascunho atual e preservam mídia confirmada ap
   const props = { draft: renderedDraft, onChange, issues: [], municipalities: [], isLoading: false, error: null, onRetry: noop };
   for (const [Component, fieldId, value] of [
     [CoverStep, 'cover-force', 'PM'],
-    [GeneralInformationStep, 'collaborators', 'Equipe atualizada'],
     [ConclusionStep, 'report-conclusion', 'Conclusão atualizada'],
   ]) {
     const field = findElement(Component(props), (element) => element.props.id === fieldId);
@@ -111,7 +110,6 @@ test('edições de campos usam o rascunho atual e preservam mídia confirmada ap
   }
   assert.equal(current.cover.force, 'PM');
   assert.equal(current.cover.size, '1B');
-  assert.equal(current.general_information.collaborators, 'Equipe atualizada');
   assert.equal(current.general_information.inspection_date, '2020-01-31');
   assert.equal(current.conclusion, 'Conclusão atualizada');
 });
@@ -193,16 +191,86 @@ test('capa apresenta falha no catálogo e campos pendentes sem municípios inven
   assert.doesNotMatch(html, /Vitória da Conquista|Salvador/);
 });
 
-test('informações gerais mostra somente data e colaboradores, limite de mil caracteres e erro para data futura', () => {
+test('informações gerais apresenta data, colaboradores e representantes estruturados na ordem esperada', () => {
   const draft = emptyReportDraft();
-  draft.general_information = { inspection_date: '2999-01-01', collaborators: 'Equipe COTEC' };
+  draft.general_information = { ...draft.general_information, inspection_date: '2999-01-01', collaborators: [createCollaborator('Equipe COTEC')] };
   const html = render(GeneralInformationStep, { draft, onChange: noop, issues: [] });
-  assert.equal((html.match(/<input\b/g) ?? []).length, 1);
-  assert.equal((html.match(/<textarea\b/g) ?? []).length, 1);
+  assert.equal((html.match(/<input\b/g) ?? []).length, 4);
+  assert.equal((html.match(/<textarea\b/g) ?? []).length, 0);
+  assert.ok(html.indexOf('Data da vistoria') < html.indexOf('Colaboradores presentes'));
+  assert.ok(html.indexOf('Colaboradores presentes') < html.indexOf('Representantes Institucionais'));
+  for (const label of ['Nome do colaborador', 'Nome do representante', 'Cargo', 'Adicionar representante']) assert.ok(html.includes(label));
   assert.match(html, /type="date"[^>]*lang="pt-BR"[^>]*max="\d{4}-\d{2}-\d{2}"/);
   assert.match(render(GeneralInformationStep, { draft: emptyReportDraft(), onChange: noop, issues: [] }), /Formato: DD\/MM\/AAAA/);
   assert.match(html, /A data deve ser válida e não pode ser futura/);
   assert.match(html, /aria-label="12 de 1000 caracteres"/);
+});
+
+test('participantes usam identidade estável para adicionar, editar e remover sem perder o rascunho atual', () => {
+  const renderedDraft = emptyReportDraft();
+  const collaborators = [createCollaborator('Ana'), createCollaborator('Bruno'), createCollaborator('Carla')];
+  const representatives = [createInstitutionalRepresentative('Maria', 'Secretária'), createInstitutionalRepresentative('José', 'Engenheiro')];
+  renderedDraft.general_information = { ...renderedDraft.general_information, collaborators, institutional_representatives: representatives };
+  const confirmed = { id, kind: 'state_map', name: 'mapa.png', reference: { storage_identifier: 'reports/mapa.png' } };
+  let current = { ...renderedDraft, assets: [confirmed], conclusion: 'Conclusão de outra etapa',
+    general_information: { ...renderedDraft.general_information, inspection_date: '2020-01-31' } };
+  const onChange = (update) => { assert.equal(typeof update, 'function'); current = update(current); };
+  const section = (draft, prefix) => findElement(GeneralInformationStep({ draft, onChange, issues: [] }), (element) => element.props.prefix === prefix).props;
+  const collaboratorFields = section(renderedDraft, 'collaborators');
+  const representativeFields = section(renderedDraft, 'institutional_representatives');
+  collaboratorFields.onRemove(collaborators[1].id);
+  collaboratorFields.onEdit(collaborators[2].id, 'name', 'Carla Santos');
+  collaboratorFields.onAdd();
+  collaboratorFields.onAdd();
+  assert.deepEqual(current.general_information.collaborators.slice(0, 2).map(({ id: key, name }) => [key, name]), [[collaborators[0].id, 'Ana'], [collaborators[2].id, 'Carla Santos']]);
+  assert.equal(new Set(current.general_information.collaborators.map(({ id: key }) => key)).size, 4);
+  representativeFields.onRemove(representatives[0].id);
+  representativeFields.onEdit(representatives[1].id, 'position', 'Coordenador');
+  assert.deepEqual(current.general_information.institutional_representatives, [{ ...representatives[1], position: 'Coordenador' }]);
+  representativeFields.onAdd();
+  const added = current.general_information.institutional_representatives[1];
+  representativeFields.onEdit(added.id, 'name', 'Joana');
+  representativeFields.onEdit(added.id, 'position', 'Diretora');
+  assert.deepEqual(current.general_information.institutional_representatives[1], { ...added, name: 'Joana', position: 'Diretora' });
+  assert.equal(current.assets[0], confirmed);
+  assert.equal(current.general_information.inspection_date, '2020-01-31');
+  assert.equal(current.conclusion, 'Conclusão de outra etapa');
+  const rendered = render(GeneralInformationStep, { draft: current, onChange, issues: [] });
+  assert.ok(rendered.includes(`id="collaborators-${collaborators[2].id}-name"`));
+  assert.ok(rendered.includes('value="Carla Santos"'));
+  assert.doesNotMatch(rendered, /value="Bruno"/);
+});
+
+test('mantém campo de colaborador e permite excluir o único representante cadastrado', () => {
+  let current = emptyReportDraft();
+  const onChange = (update) => { current = update(current); };
+  const section = (prefix) => findElement(GeneralInformationStep({ draft: current, onChange, issues: [] }), (element) => element.props.prefix === prefix).props;
+  const collaborator = current.general_information.collaborators[0];
+  section('collaborators').onRemove(collaborator.id);
+  assert.deepEqual(current.general_information.collaborators, [collaborator]);
+  const representative = current.general_information.institutional_representatives[0];
+  section('institutional_representatives').onEdit(representative.id, 'name', 'Maria');
+  section('institutional_representatives').onEdit(representative.id, 'position', 'Secretária');
+  section('institutional_representatives').onRemove(representative.id);
+  assert.equal(current.general_information.institutional_representatives.length, 1);
+  assert.equal(current.general_information.institutional_representatives[0].name, '');
+  assert.equal(current.general_information.institutional_representatives[0].position, '');
+});
+
+test('representante parcial exibe erro de cargo associado ao input, sem tornar a seção vazia obrigatória', () => {
+  const draft = emptyReportDraft();
+  const representative = draft.general_information.institutional_representatives[0];
+  representative.name = 'Maria Santos';
+  const html = render(GeneralInformationStep, { draft, onChange: noop, issues: getStepIssues(draft)[1] });
+  const fieldId = `institutional_representatives-${representative.id}-position`;
+  assert.ok(html.includes(`id="${fieldId}-error"`));
+  assert.match(html, /Informe o cargo do representante/);
+  const field = html.match(new RegExp(`<input[^>]*id="${fieldId}"[^>]*>`))?.[0];
+  assert.match(field, /aria-invalid="true"/);
+  assert.match(field, /aria-required="true"/);
+  assert.ok(field.includes(`${fieldId}-error`));
+  const empty = emptyReportDraft();
+  assert.ok(getStepIssues(empty)[1].every(({ field }) => !field.startsWith('institutional_representatives.')));
 });
 
 for (const [title, items, expected] of [['infraestrutura', INFRASTRUCTURE, 10], ['checklist', CHECKLIST, 20]]) {
@@ -346,12 +414,13 @@ test('anexos dividem documentos oficiais opcionais e exigem descrição de outro
 test('revisão final resume as oito seções e permite corrigir qualquer uma com pendências explícitas', () => {
   const draft = emptyReportDraft();
   draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM 1B', sei_number: '123' };
-  draft.general_information = { inspection_date: '2020-01-31', collaborators: 'Equipe técnica' };
+  draft.general_information = { ...draft.general_information, inspection_date: '2020-01-31', collaborators: [createCollaborator('Equipe técnica')],
+    institutional_representatives: [createInstitutionalRepresentative('Maria Santos', 'Secretária Municipal'), createInstitutionalRepresentative('José Oliveira', 'Engenheiro Civil')] };
   draft.conclusion = 'Primeiro parágrafo.\nSegundo parágrafo.';
   const html = render(ReviewStep, { draft, issues: getStepIssues(draft), municipalities: [municipality], onSelect: noop });
   assert.equal((html.match(/<section\b/g) ?? []).length, 8);
   for (const title of titles.slice(0, 8)) assert.match(html, new RegExp(`aria-label="Editar ${title}"`));
-  for (const value of ['Vitória da Conquista', 'CIPM 1B', '31/01/2020', 'Equipe técnica', 'Primeiro parágrafo.', 'Segundo parágrafo.']) assert.ok(html.includes(value));
+  for (const value of ['Vitória da Conquista', 'CIPM 1B', '31/01/2020', 'Equipe técnica', 'Maria Santos', 'Secretária Municipal', 'José Oliveira', 'Engenheiro Civil', 'Primeiro parágrafo.', 'Segundo parágrafo.']) assert.ok(html.includes(value));
   assert.match(html, /pendências para finalizar/);
   assert.match(html, /Adicione a localização do município em relação ao estado da Bahia/);
   assert.match(html, /Esta revisão do formulário precede a revisão institucional/);
@@ -362,7 +431,7 @@ test('revisão final resume as oito seções e permite corrigir qualquer uma com
 test('arquivo local continua pendente na revisão e impede finalizar mesmo com campos completos', () => {
   const draft = emptyReportDraft();
   draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM', sei_number: '123' };
-  draft.general_information = { inspection_date: '2020-01-31', collaborators: 'Equipe' };
+  draft.general_information = { ...draft.general_information, inspection_date: '2020-01-31', collaborators: [createCollaborator('Equipe')] };
   draft.infrastructure = Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, 'SIM']));
   draft.checklist = Object.fromEntries(CHECKLIST.map(([key]) => [key, 'SIM']));
   draft.conclusion = 'Conclusão técnica preenchida.';

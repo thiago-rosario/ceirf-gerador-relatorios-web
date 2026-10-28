@@ -9,6 +9,8 @@ export function ReviewStep({ draft, issues, municipalities, onSelect }: { draft:
   const municipality = municipalities.find((item) => item.id === draft.cover.municipality_id)?.name || (draft.cover.municipality_id ? `Município #${draft.cover.municipality_id}` : 'Não informado')
   const date = draft.general_information.inspection_date
   const readableDate = /^\d{4}-\d{2}-\d{2}$/.test(date) ? date.split('-').reverse().join('/') : 'Não informada'
+  const collaborators = draft.general_information.collaborators.filter((row) => row.name.trim())
+  const representatives = draft.general_information.institutional_representatives.filter((row) => row.name.trim() || row.position.trim())
   const media = (kinds: string[]) => draft.assets.filter((asset) => kinds.includes(asset.kind))
   const assetSummary = (kinds: string[]) => media(kinds).length ? media(kinds).map((asset) => {
     const confirmed = isAssetConfirmed(asset)
@@ -23,7 +25,7 @@ export function ReviewStep({ draft, issues, municipalities, onSelect }: { draft:
   const answers = (items: string[][], values: ReportDraft['checklist']) => <dl className="grid gap-2 sm:grid-cols-2">{items.map(([key, label]) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className={values[key] ? 'font-medium' : 'text-amber-800'}>{values[key] || 'Resposta pendente'}</dd></div>)}</dl>
   const summaries = [
     <dl key="cover" className="grid gap-3 sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Município</dt><dd>{municipality}</dd></div><div><dt className="text-xs text-slate-500">Força / Tamanho</dt><dd>{draft.cover.force || 'Não informada'} / {draft.cover.size || 'Não informado'}</dd></div><div><dt className="text-xs text-slate-500">Tipologia</dt><dd className="break-words">{draft.cover.typology || 'Não informada'}</dd></div><div><dt className="text-xs text-slate-500">Nº SEI</dt><dd className="break-words">{draft.cover.sei_number || 'Não informado'}</dd></div></dl>,
-    <dl key="general" className="space-y-3"><div><dt className="text-xs text-slate-500">Data da vistoria</dt><dd>{readableDate}</dd></div><div><dt className="text-xs text-slate-500">Colaboradores presentes</dt><dd className="whitespace-pre-wrap break-words">{draft.general_information.collaborators || 'Não informados'}</dd></div></dl>,
+    <dl key="general" className="space-y-3"><div><dt className="text-xs text-slate-500">Data da vistoria</dt><dd>{readableDate}</dd></div><div><dt className="text-xs text-slate-500">Colaboradores presentes</dt><dd>{collaborators.length ? <ul className="space-y-1">{collaborators.map((row) => <li key={row.id} className="break-words">{row.name}</li>)}</ul> : 'Não informados'}</dd></div><div><dt className="text-xs text-slate-500">Representantes Institucionais</dt><dd>{representatives.length ? <ul className="space-y-2">{representatives.map((row) => <li key={row.id} className="break-words"><span className="font-medium">{row.name.trim() ? row.name : 'Nome pendente'}</span> · {row.position.trim() ? row.position : 'Cargo pendente'}</li>)}</ul> : 'Não informados'}</dd></div></dl>,
     <ul key="location" className="space-y-2">{assetSummary(['location_map', 'state_map'])}</ul>,
     answers(INFRASTRUCTURE, draft.infrastructure),
     <ul key="pre" className="space-y-2">{assetSummary(['pre_implementation'])}</ul>,

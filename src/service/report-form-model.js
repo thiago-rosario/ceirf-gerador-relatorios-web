@@ -1,7 +1,7 @@
 // Labels follow the official report model. Enum values and field keys follow the Laravel contract.
 export const REPORT_STEPS = [
   ['Capa', 'Preencha as informações da capa do relatório'],
-  ['Informações Gerais', 'Registre a data da vistoria e os colaboradores presentes'],
+  ['Informações Gerais', 'Registre a data da vistoria, os colaboradores presentes e os representantes institucionais'],
   ['Localização do Terreno', 'Adicione os mapas que identificam a localização do terreno'],
   ['Infraestrutura Existente', 'Informe a infraestrutura identificada durante a vistoria'],
   ['Sugestão Pré-Implantação', 'Adicione a sugestão de pré-implantação, quando disponível'],
@@ -43,6 +43,30 @@ export const isAssetConfirmed = (asset) => Boolean(asset.reference && !asset.fil
 export const textLength = (value) => Array.from(value).length
 export const truncateText = (value, limit) => Array.from(value).slice(0, limit).join('')
 export const todayInBahia = () => new Intl.DateTimeFormat('sv-SE', { timeZone: 'America/Bahia' }).format(new Date())
+let nextParticipantId = 0
+const participantIdPrefix = Math.random().toString(36).slice(2)
+const participantId = () => `participant-${participantIdPrefix}-${++nextParticipantId}`
+export const createCollaborator = (name = '') => ({ id: participantId(), name })
+export const createInstitutionalRepresentative = (name = '', position = '') => ({ id: participantId(), name, position })
+export const serializeCollaborators = (rows) => rows.filter(({ name }) => name.trim()).map(({ name }) => name).join('\n')
+
+/** Validation that also applies to partial drafts; empty optional rows are not records. */
+export const getGeneralInformationSaveIssues = (draft) => {
+  /** @type {import('../types/report-draft').StepIssue[]} */
+  const issues = []
+  const { collaborators, institutional_representatives } = draft.general_information
+  if (textLength(serializeCollaborators(collaborators)) > 1000) issues.push({ field: 'collaborators', message: 'Informe até 1.000 caracteres no total dos colaboradores.' })
+  for (const representative of institutional_representatives) {
+    if (!representative.name.trim() && !representative.position.trim()) continue
+    for (const [field, label] of [['name', 'o nome'], ['position', 'o cargo']]) {
+      const value = representative[field]
+      const key = `institutional_representatives.${representative.id}.${field}`
+      if (!value.trim()) issues.push({ field: key, message: `Informe ${label} do representante.` })
+      else if (textLength(value) > 255) issues.push({ field: key, message: `Informe até 255 caracteres para ${label} do representante.` })
+    }
+  }
+  return issues
+}
 
 export const validInspectionDate = (value, today = todayInBahia()) => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
@@ -52,7 +76,7 @@ export const validInspectionDate = (value, today = todayInBahia()) => {
 /** @returns {import('../types/report-draft').ReportDraft} */
 export const emptyReportDraft = () => ({
   cover: { municipality_id: null, force: '', size: '', typology: '', sei_number: '' },
-  general_information: { inspection_date: '', collaborators: '' },
+  general_information: { inspection_date: '', collaborators: [createCollaborator()], institutional_representatives: [createInstitutionalRepresentative()] },
   infrastructure: Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, null])),
   checklist: Object.fromEntries(CHECKLIST.map(([key]) => [key, null])), conclusion: '', assets: [], mediaHistory: {}, photoHistory: {}, nextPhotoOrder: 1,
 })
@@ -72,8 +96,8 @@ export const getStepIssues = (draft) => {
   if (!draft.cover.sei_number.trim()) add(0, 'sei_number', 'Informe o número SEI.')
   if (textLength(draft.cover.sei_number) > 80) add(0, 'sei_number', 'O número SEI deve ter até 80 caracteres.')
   if (!validInspectionDate(draft.general_information.inspection_date)) add(1, 'inspection_date', 'Informe uma data válida que não seja futura.')
-  if (!draft.general_information.collaborators.trim()) add(1, 'collaborators', 'Informe os colaboradores presentes.')
-  if (textLength(draft.general_information.collaborators) > 1000) add(1, 'collaborators', 'Informe até 1.000 caracteres.')
+  if (!serializeCollaborators(draft.general_information.collaborators).trim()) add(1, 'collaborators', 'Informe os colaboradores presentes.')
+  issues[1].push(...getGeneralInformationSaveIssues(draft))
   if (!draft.assets.some((asset) => asset.kind === 'state_map')) add(2, 'state_map', 'Adicione a localização do município em relação ao estado da Bahia.')
   for (const [key, label] of INFRASTRUCTURE) if (!ANSWERS.includes(draft.infrastructure[key])) add(3, key, `${label}: selecione uma resposta.`)
   for (const [key, label] of CHECKLIST) if (!ANSWERS.includes(draft.checklist[key])) add(6, key, `${label}: selecione uma resposta.`)
@@ -107,7 +131,12 @@ export const draftFieldsPayload = (draft) => {
   const image = (asset) => asset ? { id: asset.id, file: asset.reference, order: asset.order, caption: asset.caption } : null
   return {
     cover: { ...draft.cover, force: draft.cover.force || null, size: draft.cover.size || null, sei_number: draft.cover.sei_number.trim() || null },
-    general_information: { ...draft.general_information, inspection_date: draft.general_information.inspection_date || null },
+    general_information: {
+      inspection_date: draft.general_information.inspection_date || null,
+      collaborators: serializeCollaborators(draft.general_information.collaborators),
+      institutional_representatives: draft.general_information.institutional_representatives
+        .filter(({ name, position }) => name.trim() || position.trim()).map(({ name, position }) => ({ name, position })),
+    },
     infrastructure: draft.infrastructure,
     location: { location_map: image(remote.find((asset) => asset.kind === 'location_map')), municipality_in_state_map: image(remote.find((asset) => asset.kind === 'state_map')) },
     pre_implementation: { image: image(remote.find((asset) => asset.kind === 'pre_implementation')) },
@@ -129,7 +158,17 @@ export const hydrateReportDraft = (report) => {
     force: FORCES.includes(report.cover.force) ? report.cover.force : '', size: REPORT_SIZES.includes(report.cover.size) ? report.cover.size : '',
     typology: text(report.cover.typology), sei_number: text(report.cover.sei_number),
   }
-  if (report.general_information) draft.general_information = { inspection_date: text(report.general_information.inspection_date).slice(0, 10), collaborators: text(report.general_information.collaborators) }
+  if (report.general_information) {
+    const information = report.general_information
+    const collaborators = text(information.collaborators)
+    const representatives = Array.isArray(information.institutional_representatives) ? information.institutional_representatives : []
+    draft.general_information = {
+      inspection_date: text(information.inspection_date).slice(0, 10),
+      collaborators: collaborators ? collaborators.split(/\r?\n/).map(createCollaborator) : [createCollaborator()],
+      institutional_representatives: representatives.length
+        ? representatives.map((item) => createInstitutionalRepresentative(text(item?.name), text(item?.position))) : [createInstitutionalRepresentative()],
+    }
+  }
   for (const [key] of INFRASTRUCTURE) draft.infrastructure[key] = ANSWERS.includes(report.infrastructure?.[key]) ? report.infrastructure[key] : null
   for (const [key] of CHECKLIST) draft.checklist[key] = ANSWERS.includes(report.attachments?.checklist?.[key]) ? report.attachments.checklist[key] : null
   draft.conclusion = text(report.conclusion?.content)
