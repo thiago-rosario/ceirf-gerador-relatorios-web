@@ -10,28 +10,6 @@ export const REPORT_STEPS = [
   ['Conclusão', 'Registre a conclusão técnica da vistoria'],
   ['Revisão Final', 'Confira todas as seções e as pendências antes de finalizar'],
 ]
-export const FORCES = ['PM', 'PC', 'CBM', 'DPT', 'PC-PM', 'SSP']
-export const REPORT_SIZES = ['1B', '1A', '1', '1B-1B', '1B-1A', '1B-1', '1A-1A', '1A-A', '1-1', '1A-1B', 'SEM PADRÃO']
-export const ANSWERS = ['SIM', 'NÃO', 'NÃO SE APLICA']
-export const INFRASTRUCTURE = [
-  ['water_network', 'Rede de Água'], ['high_voltage_network', 'Rede Elétrica de Alta'],
-  ['low_voltage_network', 'Rede Elétrica de Baixa'], ['sewage_network', 'Rede de Esgoto'],
-  ['telephony', 'Telefonia'], ['public_lighting', 'Iluminação Pública'], ['internet', 'Internet'],
-  ['waste_collection', 'Coleta de Lixo'], ['paving', 'Pavimentação'], ['existing_buildings', 'Edificações existente'],
-]
-export const CHECKLIST = [
-  ['sei_construction_request', 'Solicitação via Sistema Eletrônico de Informação – SEI para construção da unidade.'],
-  ['sei_land_and_typology_identification', 'Indicação no processo SEI do terreno e da tipologia da unidade a ser construída.'],
-  ['state_owned_land', 'Terreno escriturado em nome do Estado.'], ['simov_legalized', 'Terreno possui código SIMOV com o status de legalizado.'],
-  ['compatible_dimensions', 'Dimensões do Terreno compatíveis com a tipologia da unidade a ser construída.'], ['slope_or_level_risk', 'Terreno próximo a encostas ou com cota de implantação inferior a edificações vizinhas ou nível da rua que gerem vulnerabilidade da unidade.'],
-  ['stormwater_drainage', 'Existência de sistema de drenagem pluvial no acesso à unidade.'], ['flood_history', 'Terreno em área com histórico de alagamentos.'],
-  ['electricity_supply', 'Existência de sistema de fornecimento de energia elétrica.'], ['water_supply', 'Existência de sistema de fornecimento de água potável.'],
-  ['sewage_supply', 'Existência de sistema de esgotamento sanitário.'], ['paving_and_sidewalk', 'Existência de pavimentação e passeio no acesso à unidade.'],
-  ['regular_waste_collection', 'Existência de serviço de coleta regular de resíduos sólidos.'], ['demolition_required', 'Necessidade de demolição de edificação existente no terreno.'],
-  ['easy_public_access', 'Localização de fácil acesso ao cidadão.'], ['domain_strip_or_non_buildable_area', 'Terreno em faixa de domínio ou em área não edificante.'],
-  ['technical_feasibility_report', 'Elaboração de relatório técnico conclusivo sobre a viabilidade do terreno.'], ['report_attached_to_sei', 'Encarte do relatório no processo SEI, para conhecimento das Forças e Gabinete do Secretário.'],
-  ['works_dashboard_updated', 'Atualização do Painel de Obras.'], ['environmental_protection_area', 'Verificar se o terreno se encontra em área de preservação ambiental.'],
-]
 export const PRE_IMPLEMENTATION_NOTE = 'Obs.: A pré-implantação foi realizada com imagens de drone e não substitui o projeto de implantação, que deverá ser realizada pela Coordenação de Projetos após a realização dos estudos planialtimétricos e sondagens.'
 export const ASSET_CAPTIONS = {
   location_map: 'Mapa de Localização', state_map: 'Localização do município em relação ao estado da Bahia',
@@ -77,20 +55,29 @@ export const validInspectionDate = (value, today = todayInBahia()) => {
 export const emptyReportDraft = () => ({
   cover: { municipality_id: null, force: '', size: '', typology: '', sei_number: '' },
   general_information: { inspection_date: '', collaborators: [createCollaborator()], institutional_representatives: [createInstitutionalRepresentative()] },
-  infrastructure: Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, null])),
-  checklist: Object.fromEntries(CHECKLIST.map(([key]) => [key, null])), conclusion: '', assets: [], mediaHistory: {}, photoHistory: {}, nextPhotoOrder: 1,
+  infrastructure: {},
+  checklist: {}, conclusion: '', assets: [], mediaHistory: {}, photoHistory: {}, nextPhotoOrder: 1,
 })
 
 /** @param {import('../types/report-draft').ReportDraft} draft
+ * @param {Partial<import('../types/report-catalogs').ReportFormOptions> | null} [options]
  * @returns {import('../types/report-draft').StepIssue[][]}
  */
-export const getStepIssues = (draft) => {
+export const getStepIssues = (draft, options = null) => {
   /** @type {import('../types/report-draft').StepIssue[][]} */
   const issues = Array.from({ length: 8 }, () => [])
   const add = (step, field, message) => issues[step].push({ field, message })
   if (!Number.isSafeInteger(draft.cover.municipality_id) || draft.cover.municipality_id <= 0) add(0, 'municipality_id', 'Selecione o município.')
-  if (!FORCES.includes(draft.cover.force)) add(0, 'force', 'Selecione a força.')
-  if (!REPORT_SIZES.includes(draft.cover.size)) add(0, 'size', 'Selecione o tamanho.')
+  if (!options?.forces?.length) add(0, 'catalogs.forces', 'Carregue as forças institucionais antes de finalizar.')
+  if (!options?.typologies?.length) add(0, 'catalogs.typologies', 'Carregue os tamanhos antes de finalizar.')
+  if (!options?.infrastructure?.length) add(3, 'catalogs.infrastructure', 'Carregue os itens de infraestrutura antes de finalizar.')
+  if (!options?.checklist?.length) add(6, 'catalogs.checklist', 'Carregue as perguntas do checklist antes de finalizar.')
+  if (!options?.answers?.length) {
+    add(3, 'catalogs.answers', 'Carregue as respostas permitidas antes de finalizar.')
+    add(6, 'catalogs.answers', 'Carregue as respostas permitidas antes de finalizar.')
+  }
+  if (!options?.forces?.some(({ key }) => key === draft.cover.force)) add(0, 'force', 'Selecione a força.')
+  if (!options?.typologies?.some(({ key }) => key === draft.cover.size)) add(0, 'size', 'Selecione o tamanho.')
   if (!draft.cover.typology.trim()) add(0, 'typology', 'Informe a tipologia.')
   if (textLength(draft.cover.typology) > 100) add(0, 'typology', 'A tipologia deve ter até 100 caracteres.')
   if (!draft.cover.sei_number.trim()) add(0, 'sei_number', 'Informe o número SEI.')
@@ -99,8 +86,9 @@ export const getStepIssues = (draft) => {
   if (!serializeCollaborators(draft.general_information.collaborators).trim()) add(1, 'collaborators', 'Informe os colaboradores presentes.')
   issues[1].push(...getGeneralInformationSaveIssues(draft))
   if (!draft.assets.some((asset) => asset.kind === 'state_map')) add(2, 'state_map', 'Adicione a localização do município em relação ao estado da Bahia.')
-  for (const [key, label] of INFRASTRUCTURE) if (!ANSWERS.includes(draft.infrastructure[key])) add(3, key, `${label}: selecione uma resposta.`)
-  for (const [key, label] of CHECKLIST) if (!ANSWERS.includes(draft.checklist[key])) add(6, key, `${label}: selecione uma resposta.`)
+  const isAnswer = (value) => options?.answers?.some(({ key }) => key === value)
+  for (const { key, label } of options?.infrastructure ?? []) if (!isAnswer(draft.infrastructure[key])) add(3, key, `${label}: selecione uma resposta.`)
+  for (const { key, label } of options?.checklist ?? []) if (!isAnswer(draft.checklist[key])) add(6, key, `${label}: selecione uma resposta.`)
   const checksums = new Set()
   for (const asset of draft.assets) {
     const step = ({ location_map: 2, state_map: 2, pre_implementation: 4, photograph: 5, municipality_map: 6, topographic_plan: 6, other: 6 })[asset.kind]
@@ -155,7 +143,7 @@ export const hydrateReportDraft = (report) => {
   const text = (value) => typeof value === 'string' ? value : ''
   if (report.cover) draft.cover = {
     municipality_id: Number.isSafeInteger(report.cover.municipality?.id) && report.cover.municipality.id > 0 ? report.cover.municipality.id : null,
-    force: FORCES.includes(report.cover.force) ? report.cover.force : '', size: REPORT_SIZES.includes(report.cover.size) ? report.cover.size : '',
+    force: text(report.cover.force), size: text(report.cover.size),
     typology: text(report.cover.typology), sei_number: text(report.cover.sei_number),
   }
   if (report.general_information) {
@@ -169,8 +157,10 @@ export const hydrateReportDraft = (report) => {
         ? representatives.map((item) => createInstitutionalRepresentative(text(item?.name), text(item?.position))) : [createInstitutionalRepresentative()],
     }
   }
-  for (const [key] of INFRASTRUCTURE) draft.infrastructure[key] = ANSWERS.includes(report.infrastructure?.[key]) ? report.infrastructure[key] : null
-  for (const [key] of CHECKLIST) draft.checklist[key] = ANSWERS.includes(report.attachments?.checklist?.[key]) ? report.attachments.checklist[key] : null
+  const answers = (values) => values && typeof values === 'object' && !Array.isArray(values)
+    ? Object.fromEntries(Object.entries(values).map(([key, value]) => [key, typeof value === 'string' ? value : null])) : {}
+  draft.infrastructure = answers(report.infrastructure)
+  draft.checklist = answers(report.attachments?.checklist)
   draft.conclusion = text(report.conclusion?.content)
   const assetFrom = (kind, item) => item?.file ? ({ id: item.id, kind, name: item.file.file_name, mimeType: item.file.mime_type, size: item.file.size_bytes, checksum: item.file.checksum,
     order: item.order ?? 1, caption: text(item.caption), description: text(item.description), reference: item.file }) : null

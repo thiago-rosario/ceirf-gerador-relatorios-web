@@ -1,13 +1,14 @@
 import type { Dispatch, SetStateAction } from 'react'
 import { MunicipalityPicker } from '@/components/reports/MunicipalityPicker'
 import { Button } from '@/components/ui/button'
-import { FORCES, REPORT_SIZES, truncateText } from '@/service/report-form-model'
+import { truncateText } from '@/service/report-form-model'
+import type { ReportFormOptions } from '@/types/report-catalogs'
 import type { Municipality } from '@/types/reports'
 import type { ReportDraft, StepIssue } from '@/types/report-draft'
 import { FormField, reportControlClass } from './FormField'
 
-export function CoverStep({ draft, onChange, issues, municipalities, isLoading, error, onRetry }: {
-  draft: ReportDraft; onChange: Dispatch<SetStateAction<ReportDraft>>; issues: StepIssue[]; municipalities: Municipality[]; isLoading: boolean; error: Error | null; onRetry: () => void
+export function CoverStep({ draft, onChange, issues, municipalities, isLoading, error, onRetry, options }: {
+  options: ReportFormOptions; draft: ReportDraft; onChange: Dispatch<SetStateAction<ReportDraft>>; issues: StepIssue[]; municipalities: Municipality[]; isLoading: boolean; error: Error | null; onRetry: () => void
 }) {
   const update = (field: string, value: string | number | null) => onChange((current) => ({ ...current, cover: { ...current.cover, [field]: value } }))
   const issue = (field: string) => issues.find((item) => item.field === field)?.message
@@ -20,13 +21,13 @@ export function CoverStep({ draft, onChange, issues, municipalities, isLoading, 
     </FormField>
     <FormField label="Força" htmlFor="cover-force" required error={issue('force')}>
       <select id="cover-force" className={reportControlClass} value={draft.cover.force} aria-required="true" aria-invalid={Boolean(issue('force'))} onChange={(e) => update('force', e.target.value)}>
-        <option value="">Selecione a força</option>{FORCES.map((value) => <option key={value}>{value}</option>)}
+        <option value="">Selecione a força</option>{draft.cover.force && !options.forces.some(({ key }) => key === draft.cover.force) && <option value={draft.cover.force}>{draft.cover.force} (valor cadastrado)</option>}{options.forces.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
       </select>
     </FormField>
     <div className="space-y-5">
       <FormField label="Tamanho" htmlFor="cover-size" required error={issue('size')}>
         <select id="cover-size" className={reportControlClass} value={draft.cover.size} aria-required="true" aria-invalid={Boolean(issue('size'))} onChange={(e) => update('size', e.target.value)}>
-          <option value="">Selecione o tamanho</option>{REPORT_SIZES.map((value) => <option key={value}>{value}</option>)}
+          <option value="">Selecione o tamanho</option>{draft.cover.size && !options.typologies.some(({ key }) => key === draft.cover.size) && <option value={draft.cover.size}>{draft.cover.size} (valor cadastrado)</option>}{options.typologies.map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
         </select>
       </FormField>
       <FormField label="Nº SEI" htmlFor="cover-sei" required value={draft.cover.sei_number} limit={80} error={issue('sei_number')}>

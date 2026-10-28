@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createReportDraft, generateReportDraft, loadReportDraft, updateReportDraft } from '@/service/report-draft-service'
 import { draftFieldsPayload, emptyReportDraft, getGeneralInformationSaveIssues, getStepIssues, hydrateReportDraft, isAssetConfirmed, validInspectionDate } from '@/service/report-form-model'
 import { createReportMediaController } from '@/controller/report-media-controller'
+import type { ReportFormOptions } from '@/types/report-catalogs'
 import type { ReportDraft } from '@/types/report-draft'
 
 type SavedDraft = { draft: ReportDraft; id: string | null; fingerprint: string; step: number; modified?: boolean; pending?: Promise<string>; finalized?: boolean; generating?: boolean; generation?: Promise<unknown>; error?: ApiError; mediaError?: ApiError; media?: ReturnType<typeof createReportMediaController>; notify?: () => void }
@@ -207,9 +208,9 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     return () => window.removeEventListener('beforeunload', warn)
   }, [dirty, localFiles])
 
-  const generate = () => {
+  const generate = (options: Partial<ReportFormOptions>) => {
     if (generating || entry.current.generating) return null
-    if (getStepIssues(entry.current.draft).some((issues) => issues.length)) {
+    if (getStepIssues(entry.current.draft, options).some((issues) => issues.length)) {
       const error = new Error('Preencha as pendências e confirme o envio de todos os arquivos antes de finalizar.')
       entry.current.error = error
       setSaveError(error)
@@ -222,7 +223,7 @@ export function useReportDraft(accessToken: string, coordinationId: number, init
     const operation = (async () => {
       try {
         const reportId = await save()
-        if (getStepIssues(entry.current.draft).some((issues) => issues.length)) throw new Error('Existem arquivos ou campos pendentes de confirmação. Confira o relatório antes de finalizar.')
+        if (getStepIssues(entry.current.draft, options).some((issues) => issues.length)) throw new Error('Existem arquivos ou campos pendentes de confirmação. Confira o relatório antes de finalizar.')
         const result = await generateReportDraft(accessToken, reportId)
         entry.current.finalized = true
         const completedKey = `${sessionKey}:${reportId}`
