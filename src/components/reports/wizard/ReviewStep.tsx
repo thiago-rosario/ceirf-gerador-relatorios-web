@@ -1,10 +1,12 @@
 import { CheckCircle2Icon, CircleAlertIcon, PencilIcon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { CHECKLIST, INFRASTRUCTURE, REPORT_STEPS, figureNumber, isAssetConfirmed } from '@/service/report-form-model'
+import { REPORT_STEPS, figureNumber, isAssetConfirmed } from '@/service/report-form-model'
 import type { ReportDraft, StepIssue } from '@/types/report-draft'
+import type { ReportCatalogOption, ReportFormOptions } from '@/types/report-catalogs'
 import type { Municipality } from '@/types/reports'
 
-export function ReviewStep({ draft, issues, municipalities, onSelect }: { draft: ReportDraft; issues: StepIssue[][]; municipalities: Municipality[]; onSelect: (step: number) => void }) {
+export function ReviewStep({ draft, issues, municipalities, onSelect, options }: { options: ReportFormOptions; draft: ReportDraft; issues: StepIssue[][]; municipalities: Municipality[]; onSelect: (step: number) => void }) {
+  const optionLabel = (items: ReportCatalogOption[], value: string | null) => items.find(({ key }) => key === value)?.label || value
   const missing = issues.reduce((total, section) => total + section.length, 0)
   const municipality = municipalities.find((item) => item.id === draft.cover.municipality_id)?.name || (draft.cover.municipality_id ? `Município #${draft.cover.municipality_id}` : 'Não informado')
   const date = draft.general_information.inspection_date
@@ -22,15 +24,15 @@ export function ReviewStep({ draft, issues, municipalities, onSelect }: { draft:
               : 'arquivo local, envio pendente'
     return <li key={asset.id} className="break-words">Figura {figureNumber(draft.assets, asset.id)} — {asset.name}{asset.caption && ` · ${asset.caption}`}{asset.description && ` · ${asset.description}`} <span className={confirmed ? 'text-green-700' : 'text-amber-800'}>({status})</span></li>
   }) : <li>Nenhum arquivo adicionado.</li>
-  const answers = (items: string[][], values: ReportDraft['checklist']) => <dl className="grid gap-2 sm:grid-cols-2">{items.map(([key, label]) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className={values[key] ? 'font-medium' : 'text-amber-800'}>{values[key] || 'Resposta pendente'}</dd></div>)}</dl>
+  const answers = (items: ReportCatalogOption[], values: ReportDraft['checklist']) => <dl className="grid gap-2 sm:grid-cols-2">{items.map(({ key, label }) => <div key={key}><dt className="text-xs text-slate-500">{label}</dt><dd className={values[key] ? 'font-medium' : 'text-amber-800'}>{optionLabel(options.answers, values[key]) || 'Resposta pendente'}</dd></div>)}</dl>
   const summaries = [
-    <dl key="cover" className="grid gap-3 sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Município</dt><dd>{municipality}</dd></div><div><dt className="text-xs text-slate-500">Força / Tamanho</dt><dd>{draft.cover.force || 'Não informada'} / {draft.cover.size || 'Não informado'}</dd></div><div><dt className="text-xs text-slate-500">Tipologia</dt><dd className="break-words">{draft.cover.typology || 'Não informada'}</dd></div><div><dt className="text-xs text-slate-500">Nº SEI</dt><dd className="break-words">{draft.cover.sei_number || 'Não informado'}</dd></div></dl>,
+    <dl key="cover" className="grid gap-3 sm:grid-cols-2"><div><dt className="text-xs text-slate-500">Município</dt><dd>{municipality}</dd></div><div><dt className="text-xs text-slate-500">Força / Tamanho</dt><dd>{optionLabel(options.forces, draft.cover.force) || 'Não informada'} / {optionLabel(options.typologies, draft.cover.size) || 'Não informado'}</dd></div><div><dt className="text-xs text-slate-500">Tipologia</dt><dd className="break-words">{draft.cover.typology || 'Não informada'}</dd></div><div><dt className="text-xs text-slate-500">Nº SEI</dt><dd className="break-words">{draft.cover.sei_number || 'Não informado'}</dd></div></dl>,
     <dl key="general" className="space-y-3"><div><dt className="text-xs text-slate-500">Data da vistoria</dt><dd>{readableDate}</dd></div><div><dt className="text-xs text-slate-500">Colaboradores presentes</dt><dd>{collaborators.length ? <ul className="space-y-1">{collaborators.map((row) => <li key={row.id} className="break-words">{row.name}</li>)}</ul> : 'Não informados'}</dd></div><div><dt className="text-xs text-slate-500">Representantes Institucionais</dt><dd>{representatives.length ? <ul className="space-y-2">{representatives.map((row) => <li key={row.id} className="break-words"><span className="font-medium">{row.name.trim() ? row.name : 'Nome pendente'}</span> · {row.position.trim() ? row.position : 'Cargo pendente'}</li>)}</ul> : 'Não informados'}</dd></div></dl>,
     <ul key="location" className="space-y-2">{assetSummary(['location_map', 'state_map'])}</ul>,
-    answers(INFRASTRUCTURE, draft.infrastructure),
+    answers(options.infrastructure, draft.infrastructure),
     <ul key="pre" className="space-y-2">{assetSummary(['pre_implementation'])}</ul>,
     <ul key="photos" className="space-y-2">{assetSummary(['photograph'])}</ul>,
-    <div key="attachments" className="space-y-4">{answers(CHECKLIST, draft.checklist)}<ul className="space-y-2 border-t pt-4">{assetSummary(['municipality_map', 'topographic_plan', 'other'])}</ul></div>,
+    <div key="attachments" className="space-y-4">{answers(options.checklist, draft.checklist)}<ul className="space-y-2 border-t pt-4">{assetSummary(['municipality_map', 'topographic_plan', 'other'])}</ul></div>,
     <p key="conclusion" className="whitespace-pre-wrap break-words">{draft.conclusion || 'Conclusão não preenchida.'}</p>,
   ]
   return <div className="space-y-4">

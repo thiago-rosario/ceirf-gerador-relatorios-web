@@ -7,14 +7,17 @@ import { join } from 'node:path';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
-import { CHECKLIST, INFRASTRUCTURE, createCollaborator, createInstitutionalRepresentative, emptyReportDraft, getStepIssues } from '../src/service/report-form-model.js';
+import { createCollaborator, createInstitutionalRepresentative, emptyReportDraft, getStepIssues as validateDraft } from '../src/service/report-form-model.js';
 
+import { reportFormOptions } from './fixtures/report-form-options.js';
+
+const getStepIssues = (draft) => validateDraft(draft, reportFormOptions);
 const titles = ['Capa', 'Informações Gerais', 'Localização do Terreno', 'Infraestrutura Existente', 'Sugestão Pré-Implantação',
   'Documentação Fotográfica', 'Anexos', 'Conclusão', 'Revisão Final'];
 const id = '550e8400-e29b-41d4-a716-446655440000';
 const noop = () => {};
 const mediaActions = { onSelectMedia: async () => null, onRemoveMedia: noop, onRetryMedia: noop };
-const render = (Component, props) => renderToStaticMarkup(createElement(Component, props));
+const render = (Component, props) => renderToStaticMarkup(createElement(Component, { options: reportFormOptions, ...props }));
 const municipality = { id: 7, name: 'Vitória da Conquista', state_code: 'BA' };
 const common = { accessToken: 'token', coordination: { id: 2, code: 'COTEC', name: 'Coordenação Técnica' }, search: '',
   onBack: noop, onNavigate: noop, onSessionInvalid: noop, refreshUser: async () => null };
@@ -32,6 +35,8 @@ let PreImplementationStep;
 let PhotographsStep;
 let AttachmentDocuments;
 let setTestState;
+let setTestCatalogState;
+let getTestCatalogCalls;
 
 before(async () => {
   cacheDirectory = await mkdtemp(join(tmpdir(), 'ceirf-report-wizard-ui-'));
@@ -41,7 +46,20 @@ before(async () => {
     plugins: [{
       name: 'controlled-wizard-state-for-ui-tests', enforce: 'pre',
       // Control the view's input state in this test server only; production persistence remains unchanged.
-      transform(_code, path) {
+      transform(code, path) {
+        if (path.endsWith('/src/hooks/use-reports.ts')) {
+          return `import { reportFormOptions } from '/tests/fixtures/report-form-options.js';
+            let catalogTestState = {};
+            let catalogCalls = [];
+            export const setTestCatalogState = (state) => { catalogTestState = state; catalogCalls = []; };
+            export const getTestCatalogCalls = () => catalogCalls;
+` + code.replace(/export function useReportCatalog\([\s\S]*?^\}/m,
+            `export function useReportCatalog(_token, name, enabled = true) {
+              catalogCalls.push({ name, enabled });
+              return enabled ? { data: reportFormOptions[name], error: null, isLoading: false, reload() {}, ...catalogTestState[name] }
+                : { data: null, error: null, isLoading: false, reload() {} };
+            }`);
+        }
         if (!path.endsWith('/src/hooks/use-report-draft.ts')) return null;
         return `import { emptyReportDraft } from '@/service/report-form-model';
           let testState = {};
@@ -65,6 +83,7 @@ before(async () => {
     server.ssrLoadModule('/src/components/reports/wizard/MediaSteps.tsx'),
     server.ssrLoadModule('/src/hooks/use-report-draft.ts'),
     server.ssrLoadModule('/src/components/reports/wizard/ConclusionStep.tsx'),
+    server.ssrLoadModule('/src/hooks/use-reports.ts'),
   ]);
   CreateReport = modules[0].default;
   CoverStep = modules[1].CoverStep;
@@ -75,11 +94,14 @@ before(async () => {
   ({ LocationStep, PreImplementationStep, PhotographsStep, AttachmentDocuments } = modules[6]);
   setTestState = modules[7].setTestState;
   ConclusionStep = modules[8].ConclusionStep;
+  setTestCatalogState = modules[9].setTestCatalogState;
+  getTestCatalogCalls = modules[9].getTestCatalogCalls;
 });
 
 after(async () => { await server?.close(); if (cacheDirectory) await rm(cacheDirectory, { recursive: true, force: true }); });
 
 function renderWizard(step, extra = {}) {
+  setTestCatalogState(extra.catalogs ?? {});
   setTestState({ step, ...extra });
   return render(CreateReport, common);
 }
@@ -98,7 +120,7 @@ test('edições de campos usam o rascunho atual e preservam mídia confirmada ap
   let current = { ...renderedDraft, assets: [confirmed], cover: { ...renderedDraft.cover, size: '1B' },
     general_information: { ...renderedDraft.general_information, inspection_date: '2020-01-31' } };
   const onChange = (update) => { assert.equal(typeof update, 'function'); current = update(current); };
-  const props = { draft: renderedDraft, onChange, issues: [], municipalities: [], isLoading: false, error: null, onRetry: noop };
+  const props = { options: reportFormOptions, draft: renderedDraft, onChange, issues: [], municipalities: [], isLoading: false, error: null, onRetry: noop };
   for (const [Component, fieldId, value] of [
     [CoverStep, 'cover-force', 'PM'],
     [ConclusionStep, 'report-conclusion', 'Conclusão atualizada'],
@@ -166,7 +188,7 @@ for (const [index, title] of titles.entries()) {
   });
 }
 
-test('capa contém os cinco campos oficiais, obrigatoriedade, limites e enums conhecidos', () => {
+test('capa contém os cinco campos oficiais e usa valores e rótulos dos catálogos recebidos', () => {
   const draft = emptyReportDraft();
   draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM 1B', sei_number: '12345' };
   const html = render(CoverStep, { draft, onChange: noop, issues: [], municipalities: [municipality], isLoading: false, error: null, onRetry: noop });
@@ -177,8 +199,8 @@ test('capa contém os cinco campos oficiais, obrigatoriedade, limites e enums co
   assert.match(html, /<input[^>]*id="cover-sei"[^>]*aria-required="true"/);
   assert.match(html, /aria-label="7 de 100 caracteres"/);
   assert.match(html, /aria-label="5 de 80 caracteres"/);
-  for (const force of ['PM', 'PC', 'CBM', 'DPT', 'PC-PM', 'SSP']) assert.match(html, new RegExp(`<option[^>]*>${force}</option>`));
-  for (const size of ['1B', '1A', '1', '1B-1B', '1B-1A', '1B-1', '1A-1A', '1A-A', '1-1', '1A-1B', 'SEM PADRÃO']) assert.match(html, new RegExp(`<option[^>]*>${size}</option>`));
+  for (const { key, label } of reportFormOptions.forces) assert.match(html, new RegExp(`<option[^>]*value="${key}"[^>]*>${label}</option>`));
+  for (const { key, label } of reportFormOptions.typologies) assert.match(html, new RegExp(`<option[^>]*value="${key}"[^>]*>${label}</option>`));
 });
 
 test('capa apresenta falha no catálogo e campos pendentes sem municípios inventados', () => {
@@ -273,21 +295,24 @@ test('representante parcial exibe erro de cargo associado ao input, sem tornar a
   assert.ok(getStepIssues(empty)[1].every(({ field }) => !field.startsWith('institutional_representatives.')));
 });
 
-for (const [title, items, expected] of [['infraestrutura', INFRASTRUCTURE, 10], ['checklist', CHECKLIST, 20]]) {
-  test(`${title} apresenta todos os ${expected} grupos obrigatórios com três respostas e progresso`, () => {
-    const values = Object.fromEntries(items.map(([key], index) => [key, index === 0 ? 'NÃO' : null]));
-    const html = render(QuestionForm, { items, values, prefix: title, showPending: true, onChange: noop });
+for (const [title, items] of [['infraestrutura', reportFormOptions.infrastructure], ['checklist', reportFormOptions.checklist]]) {
+  const expected = items.length;
+  test(`${title} apresenta os grupos e as respostas recebidos com progresso`, () => {
+    const values = Object.fromEntries(items.map(({ key }, index) => [key, index === 0 ? 'NÃO' : null]));
+    const html = render(QuestionForm, { items, answers: reportFormOptions.answers, values, prefix: title, showPending: true, onChange: noop });
     const groups = [...html.matchAll(/<fieldset\b[\s\S]*?<\/fieldset>/g)].map(([group]) => group);
     assert.equal(groups.length, expected);
-    assert.equal((html.match(/type="radio"/g) ?? []).length, expected * 3);
-    assert.equal((html.match(/aria-required="true"/g) ?? []).length, expected * 3);
+    groups.forEach((group, index) => assert.ok(group.includes(items[index].label)));
+    assert.equal((html.match(/type="radio"/g) ?? []).length, expected * reportFormOptions.answers.length);
+    assert.equal((html.match(/aria-required="true"/g) ?? []).length, expected * reportFormOptions.answers.length);
     assert.match(html, new RegExp(`1 de ${expected} respostas preenchidas`));
     assert.match(html, new RegExp(`<progress[^>]*value="1"[^>]*max="${expected}"`));
     assert.equal((html.match(/Resposta pendente/g) ?? []).length, expected - 1);
     assert.match(html, /As pendências não impedem a navegação/);
     for (const group of groups) {
-      assert.equal((group.match(/<input\b/g) ?? []).length, 3);
-      assert.deepEqual([...group.matchAll(/value="([^"]+)"/g)].map((match) => match[1]), ['SIM', 'NÃO', 'NÃO SE APLICA']);
+      assert.equal((group.match(/<input\b/g) ?? []).length, reportFormOptions.answers.length);
+      assert.deepEqual([...group.matchAll(/value="([^"]+)"/g)].map((match) => match[1]), reportFormOptions.answers.map(({ key }) => key));
+      for (const { label } of reportFormOptions.answers) assert.ok(group.includes(label));
       assert.equal(new Set([...group.matchAll(/name="([^"]+)"/g)].map((match) => match[1])).size, 1);
       assert.doesNotMatch(group, /disabled=/);
     }
@@ -432,8 +457,8 @@ test('arquivo local continua pendente na revisão e impede finalizar mesmo com c
   const draft = emptyReportDraft();
   draft.cover = { municipality_id: 7, force: 'PM', size: '1B', typology: 'CIPM', sei_number: '123' };
   draft.general_information = { ...draft.general_information, inspection_date: '2020-01-31', collaborators: [createCollaborator('Equipe')] };
-  draft.infrastructure = Object.fromEntries(INFRASTRUCTURE.map(([key]) => [key, 'SIM']));
-  draft.checklist = Object.fromEntries(CHECKLIST.map(([key]) => [key, 'SIM']));
+  draft.infrastructure = Object.fromEntries(reportFormOptions.infrastructure.map(({ key }) => [key, 'SIM']));
+  draft.checklist = Object.fromEntries(reportFormOptions.checklist.map(({ key }) => [key, 'SIM']));
   draft.conclusion = 'Conclusão técnica preenchida.';
   const file = new File(['png'], 'municipio.png', { type: 'image/png' });
   draft.assets = [{ id, kind: 'state_map', file, name: file.name, mimeType: file.type, size: file.size,
@@ -468,4 +493,77 @@ test('falha de salvamento mantém navegação e informa que a confirmação do s
   assert.match(html, /Tentar salvar novamente/);
   assert.match(html, /Salvamento não confirmado. Seus valores continuam nesta sessão/);
   assert.doesNotMatch(html, /Campos salvos no servidor/);
+});
+
+test('carregamento do catálogo da etapa mantém navegação e salvamento do rascunho', () => {
+  const html = renderWizard(0, { catalogs: { forces: { data: null, isLoading: true } } });
+  assert.match(html, /role="status"/);
+  assert.match(html, /Carregando opções desta etapa/i);
+  assert.match(html, /Salvar e Sair|Próximo/);
+  assert.doesNotMatch(html, /cover-force/);
+});
+
+test('falha dos catálogos oferece nova tentativa sem substituir opções por listas locais', () => {
+  const html = renderWizard(0, { catalogs: { typologies: { data: null, isLoading: false, error: new Error('Catálogos indisponíveis.') } } });
+  assert.match(html, /role="alert"/);
+  assert.match(html, /Catálogos indisponíveis/);
+  assert.match(html, /Tentar novamente/);
+  assert.match(html, /Salvar e Sair|Próximo/);
+  assert.doesNotMatch(html, /cover-force/);
+});
+
+test('capa preserva visualmente códigos legados ausentes dos catálogos', () => {
+  const draft = emptyReportDraft();
+  draft.cover.force = 'FORÇA LEGADA';
+  draft.cover.size = 'TAMANHO LEGADO';
+  const html = render(CoverStep, { draft, onChange: noop, issues: [], municipalities: [], isLoading: false, error: null, onRetry: noop });
+  assert.match(html, /<option[^>]*value="FORÇA LEGADA"[^>]*selected=""[^>]*>/);
+  assert.match(html, /<option[^>]*value="TAMANHO LEGADO"[^>]*selected=""[^>]*>/);
+});
+
+test('resposta legada recebida continua visível sem virar uma opção inventada', () => {
+  const items = reportFormOptions.infrastructure.slice(0, 1);
+  const html = render(QuestionForm, { items, answers: reportFormOptions.answers, values: { water_network: 'RESPOSTA LEGADA' }, prefix: 'infra', showPending: true, onChange: noop });
+  assert.match(html, /Resposta cadastrada: RESPOSTA LEGADA/);
+  assert.match(html, /0 de 1 respostas preenchidas/);
+  assert.equal((html.match(/type="radio"/g) ?? []).length, reportFormOptions.answers.length);
+  assert.doesNotMatch(html, /value="RESPOSTA LEGADA"/);
+});
+
+test('revisão apresenta rótulos dos catálogos e mantém os valores do rascunho', () => {
+  const draft = emptyReportDraft();
+  draft.cover.force = 'PM';
+  draft.cover.size = '1B';
+  draft.infrastructure.water_network = 'SIM';
+  draft.checklist.state_owned_land = 'NÃO';
+  const html = render(ReviewStep, { draft, issues: getStepIssues(draft), municipalities: [], onSelect: noop });
+  for (const value of ['Polícia Militar', 'Tipo 1B', 'Rede de Água', 'Terreno escriturado em nome do Estado.']) assert.ok(html.includes(value));
+  assert.match(html, /<dd[^>]*>Sim<\/dd>/);
+  assert.match(html, /<dd[^>]*>Não<\/dd>/);
+  assert.equal(draft.cover.force, 'PM');
+  assert.equal(draft.cover.size, '1B');
+  assert.equal(draft.infrastructure.water_network, 'SIM');
+});
+
+for (const [step, expected] of [[0, ['forces', 'typologies']], [2, []], [3, ['answers', 'infrastructure']], [6, ['answers', 'checklist']], [8, ['forces', 'typologies', 'answers', 'infrastructure', 'checklist']]]) {
+  test(`etapa ${step} solicita somente seus catálogos necessários`, () => {
+    renderWizard(step);
+    assert.deepEqual(getTestCatalogCalls().filter(({ enabled }) => enabled).map(({ name }) => name), expected);
+  });
+}
+
+test('falha de um catálogo de outra etapa não impede editar e salvar informações gerais', () => {
+  const html = renderWizard(1, { catalogs: { infrastructure: { data: null, error: new Error('Infraestrutura indisponível.') } } });
+  assert.match(html, /Colaboradores presentes/);
+  assert.match(html, /Salvar e Sair/);
+  assert.doesNotMatch(html, /Infraestrutura indisponível|Carregando opções desta etapa/);
+  assert.deepEqual(getTestCatalogCalls().filter(({ enabled }) => enabled), []);
+});
+
+test('revisão aguarda catálogo faltante e mantém finalização bloqueada sem impedir salvar', () => {
+  const html = renderWizard(8, { catalogs: { checklist: { data: null, isLoading: true } } });
+  assert.match(html, /Carregando opções desta etapa/);
+  assert.match(html, /Salvar e Sair/);
+  const finalize = [...html.matchAll(/<button\b[^>]*>[\s\S]*?<\/button>/g)].find(([button]) => button.includes('Finalizar relatório'))?.[0];
+  assert.match(finalize, /disabled=""/);
 });

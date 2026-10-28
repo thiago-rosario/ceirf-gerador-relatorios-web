@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { findReport, getReportPdf, listReportMunicipalities, listReports } from '@/service/reports-service'
 import type { Municipality, Report, ReportPdf, ReportsResult } from '@/types/reports'
+import { getReportCatalog } from '@/service/report-catalog-service'
+import type { ReportCatalogName, ReportCatalogOption } from '@/types/report-catalogs'
 import type { SessionUser } from '@/types/users'
 
 type ApiError = Error & { status?: number }
@@ -28,6 +30,11 @@ function useReportQuery<T>(key: string, load: (signal: AbortSignal) => Promise<T
 export function useReports(accessToken: string, municipalityId: number | null, typology: string, page: number) {
   const load = useCallback((signal: AbortSignal) => listReports(accessToken, { municipalityId, typology, page, signal }), [accessToken, municipalityId, typology, page])
   return useReportQuery<ReportsResult>(`${accessToken}:${municipalityId}:${typology}:${page}`, load)
+}
+
+export function useReportCatalog(accessToken: string, name: ReportCatalogName, enabled = true) {
+  const load = useCallback((signal: AbortSignal) => getReportCatalog(accessToken, name, signal), [accessToken, name])
+  return useReportQuery<ReportCatalogOption[]>(`${accessToken}:${name}`, load, enabled)
 }
 
 export function useReportMunicipalities(accessToken: string) {

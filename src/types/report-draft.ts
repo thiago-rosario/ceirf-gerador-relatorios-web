@@ -1,4 +1,4 @@
-export type Answer = 'SIM' | 'NÃO' | 'NÃO SE APLICA' | null
+export type Answer = string | null
 export type AssetKind = 'location_map' | 'state_map' | 'pre_implementation' | 'photograph' | 'municipality_map' | 'topographic_plan' | 'other'
 export type FileReference = { storage_identifier: string; file_name: string; mime_type: string; size_bytes: number; checksum: string }
 export type ReportAsset = {

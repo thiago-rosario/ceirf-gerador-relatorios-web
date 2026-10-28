@@ -2,12 +2,15 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createReportDraft, updateReportDraft } from '../src/service/report-draft-service.js'
 import {
-  ANSWERS, CHECKLIST, FORCES, INFRASTRUCTURE, MAX_FIGURES, MAX_FILE_BYTES, REPORT_SIZES, REPORT_STEPS,
+  MAX_FIGURES, MAX_FILE_BYTES, REPORT_STEPS,
   createCollaborator, createInstitutionalRepresentative, draftFieldsPayload, emptyReportDraft, figureNumber, fileMimeType,
-  getGeneralInformationSaveIssues, getStepIssues, hydrateReportDraft, isAssetConfirmed, orderedAssets,
+  getGeneralInformationSaveIssues, getStepIssues as validateDraft, hydrateReportDraft, isAssetConfirmed, orderedAssets,
   serializeCollaborators, textLength, truncateText, validInspectionDate, validateSelectedFile,
 } from '../src/service/report-form-model.js'
 
+import { reportFormOptions } from './fixtures/report-form-options.js'
+
+const getStepIssues = (draft) => validateDraft(draft, reportFormOptions)
 const id = '550e8400-e29b-41d4-a716-446655440000'
 const reference = (suffix = '1') => ({
   storage_identifier: `reports/${id}/media/${id}.png`, file_name: `imagem-${suffix}.png`,
@@ -21,8 +24,8 @@ const filledDraft = () => {
   const draft = emptyReportDraft()
   draft.cover = { municipality_id: 7, force: 'PC-PM', size: '1B-1B', typology: 'CIPM e DT', sei_number: '123.456/2026' }
   draft.general_information = { ...draft.general_information, inspection_date: '2024-02-29', collaborators: [createCollaborator('Equipe da vistoria')] }
-  draft.infrastructure = Object.fromEntries(INFRASTRUCTURE.map(([key], index) => [key, ANSWERS[index % 3]]))
-  draft.checklist = Object.fromEntries(CHECKLIST.map(([key], index) => [key, ANSWERS[index % 3]]))
+  draft.infrastructure = Object.fromEntries(reportFormOptions.infrastructure.map(({ key }, index) => [key, reportFormOptions.answers[index % 3].key]))
+  draft.checklist = Object.fromEntries(reportFormOptions.checklist.map(({ key }, index) => [key, reportFormOptions.answers[index % 3].key]))
   draft.conclusion = 'Conclusão da avaliação técnica.\nSegundo parágrafo.'
   draft.assets = [asset()]
   return draft
@@ -30,19 +33,15 @@ const filledDraft = () => {
 const dtoImage = (suffix, order = 1) => ({ id: `${id.slice(0, -1)}${suffix}`, file: reference(suffix), order, caption: `Legenda ${suffix}` })
 const mockData = (t, data) => t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify({ status: 'success', data })))
 
-test('define nove etapas e enumera todos os itens previstos pelo contrato atual sem compartilhar estado', () => {
+test('define nove etapas e cria rascunhos sem catálogos locais ou estado compartilhado', () => {
   assert.equal(REPORT_STEPS.length, 9)
-  assert.equal(INFRASTRUCTURE.length, 10)
-  assert.equal(CHECKLIST.length, 20)
-  assert.deepEqual(FORCES, ['PM', 'PC', 'CBM', 'DPT', 'PC-PM', 'SSP'])
-  assert.ok(REPORT_SIZES.includes('SEM PADRÃO'))
-  assert.deepEqual(ANSWERS, ['SIM', 'NÃO', 'NÃO SE APLICA'])
   const first = emptyReportDraft()
   const second = emptyReportDraft()
   first.infrastructure.water_network = 'SIM'
   first.assets.push(asset())
   first.mediaHistory['1'.repeat(64)] = asset()
-  assert.equal(second.infrastructure.water_network, null)
+  assert.deepEqual(second.infrastructure, {})
+  assert.deepEqual(second.checklist, {})
   assert.equal(second.assets.length, 0)
   assert.deepEqual(second.mediaHistory, {})
   assert.equal(first.general_information.collaborators.length, 1)
@@ -53,7 +52,7 @@ test('define nove etapas e enumera todos os itens previstos pelo contrato atual 
 
 test('revisão do rascunho vazio identifica todas as obrigatoriedades sem exigir arquivos opcionais', () => {
   const issues = getStepIssues(emptyReportDraft())
-  assert.deepEqual(issues.map((section) => section.length), [5, 2, 1, 10, 0, 0, 20, 1])
+  assert.deepEqual(issues.map((section) => section.length), [5, 2, 1, 2, 0, 0, 2, 1])
   assert.equal(issues[2][0].field, 'state_map')
 })
 
@@ -71,7 +70,7 @@ for (const [value, expected] of [
   })
 }
 
-test('validação da capa exige ID positivo e seleções pertencentes aos enums reais', () => {
+test('validação da capa exige ID positivo e seleções pertencentes aos catálogos recebidos', () => {
   const draft = filledDraft()
   draft.cover.municipality_id = -1
   draft.cover.force = 'PMBA'
@@ -439,7 +438,7 @@ test('hidrata os DTOs snake_case e todos os tipos de mídia mantendo metadados p
   assert.equal(draft.cover.sei_number, 'SEI-123')
   assert.equal(draft.general_information.inspection_date, '2026-10-12')
   assert.equal(draft.infrastructure.water_network, 'SIM')
-  assert.equal(draft.infrastructure.internet, null)
+  assert.equal(draft.infrastructure.internet, undefined)
   assert.equal(draft.checklist.state_owned_land, 'NÃO SE APLICA')
   assert.equal(draft.conclusion, 'Conclusão\nSegundo parágrafo')
   assert.deepEqual(draft.assets.map(({ kind }) => kind), ['location_map', 'state_map', 'pre_implementation', 'photograph', 'municipality_map', 'topographic_plan', 'other'])
@@ -451,7 +450,7 @@ test('hidrata os DTOs snake_case e todos os tipos de mídia mantendo metadados p
   assert.equal(draftFieldsPayload(draft).attachments.others[0].type, undefined)
 })
 
-test('hidratação aceita seções nulas e normaliza enum/texto inválido sem enviar campos desconhecidos', () => {
+test('hidratação aceita seções nulas e preserva os códigos e respostas legados recebidos', () => {
   const empty = hydrateReportDraft({ cover: null, general_information: null, infrastructure: null, attachments: null, conclusion: null })
   assert.deepEqual(draftFieldsPayload(empty), draftFieldsPayload(emptyReportDraft()))
   assert.deepEqual(empty.general_information.collaborators.map(({ name }) => name), [''])
@@ -463,14 +462,16 @@ test('hidratação aceita seções nulas e normaliza enum/texto inválido sem en
     attachments: { checklist: { state_owned_land: 'NO', flood_history: 'NÃO', invented_question: 'SIM' } }, conclusion: { content: 42 },
   })
   assert.equal(draft.cover.municipality_id, null)
-  assert.equal(draft.cover.force, '')
-  assert.equal(draft.cover.size, '')
+  assert.equal(draft.cover.force, 'PMBA')
+  assert.equal(draft.cover.size, 'GRANDE')
   assert.equal(draft.cover.typology, '')
-  assert.equal(draft.infrastructure.water_network, null)
+  assert.equal(draft.infrastructure.water_network, 'YES')
   assert.equal(draft.infrastructure.internet, 'SIM')
-  assert.equal(draft.infrastructure.invented_question, undefined)
+  assert.equal(draft.infrastructure.invented_question, 'SIM')
   assert.equal(draft.checklist.flood_history, 'NÃO')
-  assert.equal(draft.checklist.invented_question, undefined)
+  assert.equal(draft.checklist.invented_question, 'SIM')
+  assert.equal(draft.checklist.state_owned_land, 'NO')
+  assert.deepEqual(draftFieldsPayload(draft).infrastructure, { water_network: 'YES', internet: 'SIM', invented_question: 'SIM' })
   assert.doesNotThrow(() => getStepIssues(draft))
 })
 
@@ -552,4 +553,36 @@ test('numeração segue a composição do PDF, mantém ordem de upload e não mu
   assert.equal(figureNumber(assets, assets[1].id), 5)
   assert.deepEqual(assets.map(({ id: assetId }) => assetId), originalOrder)
   assert.equal(figureNumber(assets.filter(({ kind }) => kind !== 'location_map'), assets[1].id), 4)
+})
+
+test('ausência dos catálogos impede finalizar sem inventar opções ou perguntas', () => {
+  const issues = validateDraft(filledDraft())
+  assert.ok(issues.some((section) => section.length))
+  assert.ok(issues[0].some(({ field }) => field === 'catalogs.forces'))
+})
+
+test('validação usa chaves de catálogos recebidos e aceita sua evolução sem lista local', () => {
+  const draft = filledDraft()
+  const options = structuredClone(reportFormOptions)
+  options.forces.push({ key: 'NOVA', label: 'Nova força' })
+  options.typologies.push({ key: 'NOVA', label: 'Nova tipologia' })
+  options.answers.push({ key: 'NOVA', label: 'Nova resposta' })
+  options.infrastructure.push({ key: 'new_item', label: 'Nova infraestrutura' })
+  options.checklist.push({ key: 'new_question', label: 'Nova pergunta' })
+  draft.cover.force = 'NOVA'
+  draft.cover.size = 'NOVA'
+  assert.ok(validateDraft(draft, options)[3].some(({ field }) => field === 'new_item'))
+  assert.ok(validateDraft(draft, options)[6].some(({ field }) => field === 'new_question'))
+  draft.infrastructure.new_item = 'NOVA'
+  draft.checklist.new_question = 'NOVA'
+  assert.ok(validateDraft(draft, options).every((section) => section.length === 0))
+})
+
+test('catálogos parciais mantêm pendências apenas nas seções que ainda dependem dos ausentes', () => {
+  const draft = filledDraft()
+  const issues = validateDraft(draft, { forces: reportFormOptions.forces, typologies: reportFormOptions.typologies })
+  assert.deepEqual(issues[0], [])
+  assert.deepEqual(issues[3].map(({ field }) => field), ['catalogs.infrastructure', 'catalogs.answers'])
+  assert.deepEqual(issues[6].map(({ field }) => field), ['catalogs.checklist', 'catalogs.answers'])
+  assert.deepEqual(validateDraft(draft, reportFormOptions), Array.from({ length: 8 }, () => []))
 })
