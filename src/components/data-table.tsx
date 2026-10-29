@@ -35,7 +35,7 @@ function MobileReportCard({ report, ...actions }: { report: RecentReport } & Rep
       </div>
       <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
         <dt className="text-slate-600">Coordenação</dt><dd className="break-words text-slate-800">{report.coordination || "Não informado"}</dd>
-        <dt className="text-slate-600">Autor</dt><dd className="break-words text-slate-800">{report.author || "Indisponível na API"}</dd>
+        <dt className="text-slate-600">Autor</dt><dd className="break-words text-slate-800">{report.author || "Não informado"}</dd>
         <dt className="text-slate-600">Criado em</dt><dd className="text-slate-800 tabular-nums"><ReportDate date={report.date} /></dd>
       </dl>
       <div className="flex items-center justify-between border-t border-border pt-3">
@@ -76,7 +76,7 @@ export function DataTable({ reports, state, ...actions }: DataTableProps) {
                   <TableRow key={report.id} className="hover:bg-slate-50/80">
                     <TableCell className="max-w-56 px-4 py-3 font-medium whitespace-normal text-slate-800">{report.municipality || "Não informado"}</TableCell>
                     <TableCell className="px-4 py-3 text-sm font-medium text-primary">{report.coordination || "Não informado"}</TableCell>
-                    <TableCell className="max-w-56 px-4 py-3 whitespace-normal text-slate-700">{report.author || "Indisponível na API"}</TableCell>
+                    <TableCell className="max-w-56 px-4 py-3 break-words whitespace-normal text-slate-700">{report.author || "Não informado"}</TableCell>
                     <TableCell className="px-4 py-3 text-sm text-slate-600 tabular-nums"><ReportDate date={report.date} /></TableCell>
                     <TableCell className="px-4 py-3"><ReportStatusBadge status={report.status} /></TableCell>
                     <TableCell className="px-3 py-2"><ReportActions report={report} {...actions} /></TableCell>

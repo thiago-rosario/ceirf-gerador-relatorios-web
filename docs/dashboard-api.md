@@ -8,7 +8,7 @@ Todos os caminhos abaixo usam o prefixo configurado em `VITE_API_URL` (por padr�
 
 | Endpoint | Contrato consumido | Uso |
 | --- | --- | --- |
-| `GET /reports/dashboard` | `{ total_reports: number, reports: ReportResource[] }` | Total de registros acessíveis e dez registros mais recentes por `created_at` |
+| `GET /reports/dashboard` | `{ total_reports: number, reports: (ReportResource & { author: { id: string, name: string } \| null })[] }` | Total de registros acessíveis e dez registros mais recentes por `created_at`, com autoria |
 | `GET /reports/count-by-month?month=YYYY-MM` | `{ month: string, counts: [{ month, count }] }`; `counts: []` significa zero | Série mensal; consulta doze meses únicos para os filtros de seis meses, doze meses e ano atual |
 | `GET /coordinations` | `{ coordinations: [{ id, code, name }] }` | Resolve `coordination_id` para a sigla real |
 | `GET /reports/{uuid}` | `ReportResource` | Visualização real na página existente de relatórios |
@@ -26,10 +26,11 @@ Os limites do período usam o calendário de `America/Bahia`; o mês atual integ
 
 Os estados reais `DRAFT` e `GENERATED` aparecem como **Em elaboração** e **Gerado**. `GENERATED` não é interpretado como aprovação institucional. Estados desconhecidos permanecem visíveis conforme recebidos.
 
+A coluna **Autor** e os cards no celular exibem `author.name`, retornado pelo dashboard. Registros com `author: null` mostram **Não informado**. O objeto representa o criador persistido e pode divergir de `created_by` em snapshots antigos; o frontend não resolve autoria por esse campo nem consulta `/users`.
+
 ## Dados ainda ausentes
 
 - **Municípios visitados e forças vistoriadas:** o backend não fornece agregações com definição de vistoria, período ou deduplicação de revisões. Os cards existentes mostram `—` e comunicam a dependência; não são calculados a partir de uma amostra recente.
-- **Nome do autor:** `ReportResource` entrega `created_by` como UUID, sem nome público. A coluna mostra **Indisponível na API**. O frontend não consulta `/users`, cujo acesso exige gerenciamento de usuários.
 - **Série de vistorias por data da visita:** a contagem mensal disponível considera criação de relatórios. Uma agregação específica permanece necessária para restaurar esse indicador com sua semântica original.
 
 As propostas de complementação estão em `APIS_PENDENTES_FRONTEND.md`; nenhuma rota proposta é chamada pelo dashboard.
@@ -50,4 +51,4 @@ As propostas de complementação estão em `APIS_PENDENTES_FRONTEND.md`; nenhuma
 - Estado, cancelamento e nova tentativa: `src/hooks/use-dashboard-data.ts`.
 - Composição, feedback e sessão: `src/views/Home.jsx`.
 - Cards, gráfico e tabela existentes foram reutilizados; as ações compartilham `ReportActionProps`.
-- `tests/dashboard-service.test.js` cobre contratos, autenticação, meses e virada de ano, zero real, respostas malformadas, falhas parciais e cancelamento.
+- `tests/dashboard-service.test.js` cobre contratos, autoria e autor nulo, autenticação, meses e virada de ano, zero real, respostas malformadas, falhas parciais e cancelamento.

@@ -39,6 +39,7 @@ const validateDashboard = (data) => {
     const municipality = report?.cover?.municipality
     if (!isReportId(report?.id) || identifiers.has(report.id.toLowerCase()) || !isText(report.status) || !isDate(report.created_at)
       || !(report.coordination_id == null || isId(report.coordination_id))
+      || !(report.author === null || (isReportId(report.author?.id) && isText(report.author.name)))
       || !(report.cover === null || (typeof report.cover?.typology === 'string'
         && (municipality === null || (isId(municipality?.id) && isText(municipality.name) && municipality.state_code === 'BA'))))
       || !(report.generated_document === null || (isText(report.generated_document?.file_name) && isDate(report.generated_document?.generated_at)))) throw invalidResponse()
@@ -83,8 +84,7 @@ export const loadDashboard = async ({ accessToken, signal, today }) => {
       id: report.id,
       municipality: report.cover?.municipality?.name ?? '',
       coordination: coordinations.status === 'fulfilled' ? coordinations.value.get(report.coordination_id) ?? null : null,
-      // The API supplies the author's UUID, but no public display name. Do not request the restricted users catalogue.
-      author: null,
+      author: report.author?.name ?? null,
       date: report.created_at,
       status: report.status,
       viewHref: `/relatorios/${report.id}`,

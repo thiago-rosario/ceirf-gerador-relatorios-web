@@ -7,11 +7,12 @@ const otherId = '660e8400-e29b-41d4-a716-446655440000';
 const today = new Date('2026-10-13T12:00:00-03:00');
 const report = {
   id, status: 'GENERATED', created_at: '2026-10-09T09:00:00-03:00', created_by: 'author-uuid', coordination_id: 2,
+  author: { id: '770e8400-e29b-41d4-a716-446655440000', name: 'Joana da Conceição' },
   cover: { municipality: { id: 7, name: 'Vitória da Conquista', state_code: 'BA' }, typology: 'CIPM 1B' },
   general_information: { inspection_date: '2025-02-13T00:00:00-03:00' },
   generated_document: { file_name: 'relatório.pdf', generated_at: '2026-10-09T09:00:00-03:00' },
 };
-const draft = { ...report, id: otherId, status: 'DRAFT', created_at: '2026-10-01T09:00:00-03:00', generated_document: null };
+const draft = { ...report, id: otherId, author: null, status: 'DRAFT', created_at: '2026-10-01T09:00:00-03:00', generated_document: null };
 const json = (data, status = 200) => new Response(JSON.stringify({ status: status === 200 ? 'success' : 'error', data, message: 'Falha na solicitação.' }), {
   status, headers: { 'Content-Type': 'application/json' },
 });
@@ -39,7 +40,8 @@ test('consome os contratos reais autenticados, sem atribuir totais de registros 
   assert.deepEqual(data.metrics, { municipalities: null, forces: null, reports: 2 });
   assert.deepEqual(data.recentReports.map((value) => value.id), [id, otherId]);
   assert.equal(data.recentReports[0].coordination, 'COTEC');
-  assert.equal(data.recentReports[0].author, null);
+  assert.equal(data.recentReports[0].author, report.author.name);
+  assert.equal(data.recentReports[1].author, null);
   assert.equal(data.recentReports[0].date, report.created_at);
   assert.equal(data.recentReports[0].viewHref, `/relatorios/${id}`);
   assert.equal(data.recentReports[0].hasPdf, true);
@@ -62,6 +64,18 @@ test('os períodos seguem o calendário da Bahia, incluindo a virada de ano', ()
   assert.equal(periods['12-months'].at(-1), '2025-12');
   assert.equal(periods['current-year'].length, 12);
   assert.deepEqual(dashboardMonths(new Date('2026-01-01T04:00:00Z'))['current-year'], ['2026-01']);
+});
+
+test('usa o autor retornado por relatório mesmo quando o snapshot aponta outro criador', async (t) => {
+  const author = { id: '880e8400-e29b-41d4-a716-446655440000', name: 'Luís dos Santos' };
+  mockDashboard(t, { data: { total_reports: 2, reports: [
+    { ...draft, created_by: report.author.id, author },
+    { ...report, created_by: author.id },
+  ] } });
+  const data = await load();
+  assert.deepEqual(data.recentReports.map(({ id, author }) => ({ id, author })), [
+    { id, author: report.author.name }, { id: otherId, author: author.name },
+  ]);
 });
 
 test('preserva zero e a ausência real de relatórios, sem usar um fallback demonstrativo', async (t) => {
@@ -91,6 +105,7 @@ test('catálogo indisponível preserva relatórios reais e identifica nomes desc
   const data = await load();
   assert.equal(data.metrics.reports, 2);
   assert.equal(data.recentReports[0].coordination, null);
+  assert.equal(data.recentReports[0].author, report.author.name);
   assert.match(data.notices.join(' '), /coordenações/);
 });
 
@@ -115,6 +130,10 @@ for (const [label, data] of [
   ['relatório duplicado', { total_reports: 2, reports: [report, report] }],
   ['município malformado', { total_reports: 1, reports: [{ ...report, cover: { municipality: { name: 'Salvador' }, typology: '' } }] }],
   ['documento inválido', { total_reports: 1, reports: [{ ...report, generated_document: {} }] }],
+  ['autor malformado', { total_reports: 1, reports: [{ ...report, author: report.author.name }] }],
+  ['UUID do autor inválido', { total_reports: 1, reports: [{ ...report, author: { ...report.author, id: 7 } }] }],
+  ['nome do autor inválido', { total_reports: 1, reports: [{ ...report, author: { ...report.author, name: {} } }] }],
+  ['nome do autor vazio', { total_reports: 1, reports: [{ ...report, author: { ...report.author, name: '   ' } }] }],
 ]) {
   test(`rejeita dados inválidos: ${label}`, async (t) => {
     mockDashboard(t, { data });
