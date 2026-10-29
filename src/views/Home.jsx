@@ -42,7 +42,7 @@ export default function Home({ accessToken, loadData, onNavigateReports, onNavig
       {state === 'ready' && (
         <div role="status" className="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50/60 px-4 py-3 text-sm leading-relaxed text-muted-foreground">
           <InfoIcon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-primary" />
-          <p>Os registros respeitam o acesso da sua sessão. Os indicadores de municípios e forças vistoriadas e os nomes dos autores ainda dependem de informações não fornecidas pela API.</p>
+          <p>Os registros respeitam o acesso da sua sessão. Os indicadores de municípios e forças vistoriadas ainda dependem de informações não fornecidas pela API.</p>
         </div>
       )}
       {data.notices?.length > 0 && (

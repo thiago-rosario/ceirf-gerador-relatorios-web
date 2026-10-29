@@ -14,7 +14,7 @@ let DataTable;
 let SectionCards;
 let ChartAreaInteractive;
 let Home;
-const report = { id: '550e8400-e29b-41d4-a716-446655440000', municipality: 'Salvador', coordination: 'COTEC', author: null,
+const report = { id: '550e8400-e29b-41d4-a716-446655440000', municipality: 'Salvador', coordination: 'COTEC', author: 'Joana da Conceição Souza',
   date: '2026-10-09T09:00:00-03:00', status: 'GENERATED', hasPdf: true, viewHref: '/relatorios/550e8400-e29b-41d4-a716-446655440000' };
 const noop = () => {};
 
@@ -44,22 +44,48 @@ test('tabela navega para a visualização real e oferece download autenticado so
   assert.doesNotMatch(html, /href="[^"]*\/pdf|DADOS DEMONSTRATIVOS/);
   assert.match(html, />Gerado</);
   assert.doesNotMatch(html, />Aprovado</);
-  assert.match(html, /Indisponível na API/);
+  assert.match(html, /Joana da Conceição Souza/);
   assert.match(html, /Criado em/);
   const draftHtml = render(DataTable, { reports: [{ ...report, status: 'DRAFT', hasPdf: false }], state: 'ready', onDownloadReport: noop });
   assert.match(draftHtml, /Em elaboração/);
   assert.doesNotMatch(draftHtml, /aria-label="Baixar relatório"/);
 });
 
+for (const [label, author, expected] of [
+  ['nome do autor', report.author, report.author],
+  ['autor não informado', null, 'Não informado'],
+]) {
+  test(`exibe ${label} na coluna Autor e no card mobile`, () => {
+    const html = render(DataTable, { reports: [{ ...report, author }], state: 'ready' });
+    const tableBody = html.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/)?.[1] ?? '';
+    const cells = Array.from(tableBody.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/g), (match) => match[1]);
+    assert.equal(cells[2], expected);
+    const mobileAuthor = html.match(/<dt[^>]*>Autor<\/dt><dd[^>]*>([^<]*)<\/dd>/)?.[1];
+    assert.equal(mobileAuthor, expected);
+    assert.doesNotMatch(html, /Indisponível na API/);
+  });
+}
+
 test('download pendente mostra feedback e impede solicitações duplicadas', () => {
   const html = render(DataTable, { reports: [report], state: 'ready', onDownloadReport: noop, downloadBusyId: report.id });
   assert.match(html, /<button[^>]*disabled=""[^>]*aria-label="Baixando relatório"/);
 });
 
-test('loading oculta nomes da sessão anterior e lista vazia real tem orientação adequada', () => {
-  const loading = render(DataTable, { reports: [report], state: 'loading' });
-  assert.match(loading, /aria-busy="true"/);
-  assert.doesNotMatch(loading, /Salvador|COTEC/);
+for (const state of ['loading', 'error', 'unavailable']) {
+  test(`${state} oculta os nomes e ações dos relatórios da sessão anterior`, () => {
+    const html = render(DataTable, { reports: [report], state, onDownloadReport: noop });
+    assert.doesNotMatch(html, /Salvador|COTEC|Joana da Conceição Souza/);
+    assert.doesNotMatch(html, /aria-label="Baixar relatório"|href="\/relatorios\//);
+    if (state === 'loading') {
+      assert.match(html, /aria-busy="true"/);
+      assert.match(html, /Carregando relatórios recentes/);
+    } else {
+      assert.match(html, /Relatórios ainda não disponíveis/);
+    }
+  });
+}
+
+test('lista vazia real tem orientação adequada', () => {
   const empty = render(DataTable, { reports: [], state: 'ready' });
   assert.match(empty, /Nenhum relatório recente/);
 });
