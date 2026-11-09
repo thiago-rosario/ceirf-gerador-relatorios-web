@@ -37,7 +37,7 @@ const load = () => loadDashboard({ accessToken: 'token-real', signal: new AbortC
 test('consome os contratos reais autenticados, sem atribuir totais de registros a vistorias ou autores fictícios', async (t) => {
   const fetchMock = mockDashboard(t);
   const data = await load();
-  assert.deepEqual(data.metrics, { municipalities: null, forces: null, reports: 2 });
+  assert.deepEqual(data.metrics, { reports: 2 });
   assert.deepEqual(data.recentReports.map((value) => value.id), [id, otherId]);
   assert.equal(data.recentReports[0].coordination, 'COTEC');
   assert.equal(data.recentReports[0].author, report.author.name);

@@ -78,7 +78,7 @@ export const loadDashboard = async ({ accessToken, signal, today }) => {
     .map(([period, periodMonths]) => [period, periodMonths.map((month) => counts.get(month))]))
   if (monthly.some((result) => result.status === 'rejected')) notices.push('Não foi possível carregar todos os meses. Os períodos incompletos estão indisponíveis; tente atualizar os dados.')
   return {
-    metrics: { municipalities: null, forces: null, reports: dashboard.value.total_reports },
+    metrics: { reports: dashboard.value.total_reports },
     inspectionPeriods,
     recentReports: [...dashboard.value.reports].sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at)).slice(0, 10).map((report) => ({
       id: report.id,

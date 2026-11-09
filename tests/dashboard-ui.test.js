@@ -91,9 +91,9 @@ test('lista vazia real tem orientação adequada', () => {
 });
 
 test('cards distinguem zero real de indicadores que dependem de API', () => {
-  const html = render(SectionCards, { metrics: { municipalities: null, forces: null, reports: 0 }, state: 'ready' });
-  assert.match(html, /Relatórios registrados/);
-  assert.match(html, /Indicador depende de API específica/);
+  const html = render(SectionCards, { metrics: { reports: 0 }, state: 'ready', indicators: { data: null, state: 'unavailable', error: null, retry: noop } });
+  assert.match(html, /Relatórios Registrados/);
+  assert.match(html, /Dados do período ainda indisponíveis/);
   assert.match(html, />0</);
   assert.equal((html.match(/aria-label="Dados indisponíveis"/g) ?? []).length, 2);
 });

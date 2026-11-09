@@ -3,7 +3,7 @@ import type { DashboardData, DashboardLoader, DashboardState } from '@/types/das
 import { loadDashboard } from '@/service/dashboard-service'
 
 const unavailableData: DashboardData = {
-  metrics: { municipalities: null, forces: null, reports: null },
+  metrics: { reports: null },
   inspectionPeriods: {},
   recentReports: [],
 }
@@ -24,9 +24,9 @@ export function useDashboardData(accessToken: string, load: DashboardLoader = lo
   useEffect(() => {
     const controller = new AbortController()
     Promise.resolve()
-      .then(() => load({ accessToken, signal: controller.signal }))
+      .then(() => controller.signal.aborted ? null : load({ accessToken, signal: controller.signal }))
       .then((data) => {
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && data !== null) {
           setResult({ data, state: 'ready', error: null, accessToken, load, attempt })
         }
       })
