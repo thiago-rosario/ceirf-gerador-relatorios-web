@@ -6,10 +6,43 @@ export type InspectionPoint = {
 }
 
 export type DashboardMetrics = {
-  municipalities: number | null
-  forces: number | null
   reports: number | null
-  trends?: Partial<Record<'municipalities' | 'forces' | 'reports', string>>
+}
+
+// UI selections only. Wire values must be mapped by a confirmed API adapter.
+export type DashboardIndicatorPeriod = '7-days' | '30-days' | '6-months' | 'all-time'
+
+// Presentation models, not a proposed HTTP response or a local force catalogue.
+export type DashboardCompletion = {
+  percentage: number | null
+  completedReports?: number | null
+  totalReports?: number | null
+}
+
+export type DashboardForceInspections = {
+  code: string
+  name: string
+  count: number
+}
+
+export type DashboardIndicators = {
+  municipalities: number | null
+  reports: number | null
+  completion: DashboardCompletion | null
+  forces: DashboardForceInspections[] | null
+}
+
+export type DashboardIndicatorsLoader = (context: {
+  accessToken: string
+  period: DashboardIndicatorPeriod
+  signal: AbortSignal
+}) => Promise<DashboardIndicators | null>
+
+export type DashboardIndicatorsQuery = {
+  data: DashboardIndicators | null
+  state: DashboardState
+  error: (Error & { status?: number }) | null
+  retry: () => void
 }
 
 export type RecentReport = {

@@ -52,10 +52,13 @@ export function DataTable({ reports, state, ...actions }: DataTableProps) {
   const visibleReports = state === "ready" ? reports : []
 
   return (
-    <section id="relatorios-recentes" aria-labelledby={titleId} aria-busy={isLoading} className="flex min-w-0 scroll-mt-24 flex-col gap-4">
-      <h2 id={titleId} className="text-lg font-semibold text-primary">Relatórios Recentes</h2>
+    <section id="relatorios-recentes" aria-labelledby={titleId} aria-busy={isLoading} className="flex min-w-0 scroll-mt-24 flex-col overflow-hidden rounded-xl border border-border bg-card">
+      <div className="space-y-2 border-b border-border px-5 py-5 sm:px-6 sm:py-6">
+        <h2 id={titleId} className="text-lg font-semibold text-primary">Relatórios Recentes</h2>
+        <p className="text-sm leading-6 text-slate-600">Últimos registros disponíveis para sua sessão.</p>
+      </div>
       <TooltipProvider delay={250}>
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
+        <div className="min-w-0">
           <div className="hidden md:block">
             <Table
               aria-labelledby={titleId}
@@ -64,7 +67,7 @@ export function DataTable({ reports, state, ...actions }: DataTableProps) {
             >
               <TableHeader className="bg-slate-50">
                 <TableRow className="hover:bg-transparent">
-                  {columns.map((column) => <TableHead key={column} scope="col" className="h-12 px-4 text-xs text-slate-600">{column}</TableHead>)}
+                  {columns.map((column) => <TableHead key={column} scope="col" className="h-12 px-4 text-xs font-semibold text-slate-600">{column}</TableHead>)}
                 </TableRow>
               </TableHeader>
               <TableBody>

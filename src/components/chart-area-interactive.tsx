@@ -32,14 +32,14 @@ export function ChartAreaInteractive({ periods, state }: ChartAreaInteractivePro
   const hasPeriods = state === "ready" && availablePeriods.length > 0
 
   return (
-    <Card className="border border-border bg-card shadow-none ring-0" aria-busy={isLoading}>
+    <Card className="min-w-0 gap-5 border border-border bg-card py-5 shadow-none ring-0 sm:py-6" aria-busy={isLoading}>
       <CardHeader className="flex flex-col gap-4 px-5 sm:flex-row sm:items-start sm:justify-between sm:px-6">
-        <div className="space-y-1">
-          <CardTitle className="text-primary"><h2>Relatórios registrados por mês</h2></CardTitle>
-          <CardDescription className="text-slate-600">Data de criação dos registros acessíveis à sua sessão, incluindo rascunhos e revisões.</CardDescription>
+        <div className="min-w-0 space-y-2">
+          <CardTitle className="text-lg font-semibold text-primary"><h2>Relatórios registrados por mês</h2></CardTitle>
+          <CardDescription className="max-w-2xl leading-6 text-slate-600">Data de criação dos registros acessíveis à sua sessão, incluindo rascunhos e revisões.</CardDescription>
         </div>
-        <div className="shrink-0 space-y-1.5">
-          <label htmlFor={`period-${id}`} className="sr-only">Período dos relatórios</label>
+        <div className="w-full shrink-0 space-y-1.5 sm:w-auto">
+          <label htmlFor={`period-${id}`} className="block text-xs font-medium text-slate-600">Período do gráfico</label>
           <div className="relative">
             <select
               id={`period-${id}`}
@@ -93,6 +93,7 @@ export function ChartAreaInteractive({ periods, state }: ChartAreaInteractivePro
           </div>
         )}
       </CardContent>
+      <p className="border-t border-border px-5 pt-4 text-xs leading-5 text-slate-600 sm:px-6">Consulta independente do período dos indicadores.</p>
     </Card>
   )
 }
